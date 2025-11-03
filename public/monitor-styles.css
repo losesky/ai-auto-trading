@@ -962,7 +962,7 @@ body {
     font-size: 1rem;
     margin-bottom: 1.5rem;
     padding-bottom: 0.8rem;
-    border-bottom: 2px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -1697,13 +1697,13 @@ body {
     }
     
     .chart-header {
-        margin-bottom: 0.6rem;
+        /* margin-bottom: 0.6rem; */
         padding-bottom: 0.4rem;
     }
     
     /* 统一各区块标题的间距 */
     .stats-header {
-        margin-bottom: 0.8rem;
+        /* margin-bottom: 0.8rem; */
         padding-bottom: 0.4rem;
     }
 
@@ -2047,7 +2047,7 @@ body {
     }
     
     .account-header {
-        margin-bottom: 0rem;
+        margin-bottom: 0.6rem;
         padding-bottom: 0.4rem;
     }
     
