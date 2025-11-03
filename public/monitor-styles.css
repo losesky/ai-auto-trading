@@ -486,7 +486,7 @@ body {
 }
 
 .account-header {
-    margin-bottom: 0;
+    margin-bottom: 1rem;
     padding-bottom: 0.5rem;
     border-bottom: 1px solid var(--border-color);
     flex-shrink: 0;
@@ -1808,7 +1808,7 @@ body {
     }
     
     .account-header {
-        margin-bottom: 0.8rem;
+        margin-bottom: 0.6rem;
         padding-bottom: 0.4rem;
     }
     
