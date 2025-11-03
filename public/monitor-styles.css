@@ -471,85 +471,246 @@ body {
     background-color: var(--bg-secondary);
     border: 1px solid var(--border-color);
     padding: 1.5rem;
-    min-height: 500px;
     display: flex;
     flex-direction: column;
+    gap: 1rem;
     max-width: 100%;
     overflow: hidden;
+    height: 100%;
 }
 
 .account-header {
-    margin-bottom: 1rem;
+    margin-bottom: 0;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
 }
 
 .account-header h2 {
-    font-size: 0.9rem;
-    color: var(--text-dim);
-}
-
-.account-value {
-    font-size: 3rem;
-    font-weight: bold;
-    color: var(--accent-green);
-    text-shadow: 0 0 10px var(--accent-green);
-    margin: 1rem 0;
-}
-
-.currency-symbol {
-    font-size: 2rem;
-}
-
-.value-change {
-    display: flex;
-    gap: 0.5rem;
     font-size: 1rem;
-    margin-top: 0.5rem;
+    color: var(--text-primary);
+    font-weight: 600;
+    margin: 0;
 }
 
-.change-amount {
-    color: var(--accent-red);
-}
-
-.change-percent {
-    color: var(--text-dim);
-}
-
-.change-amount.negative {
-    color: var(--accent-green);
-}
-
-.account-details {
-    margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--border-color);
+/* 总资产卡片 */
+.account-balance-card {
+    background-color: var(--bg-tertiary);
+    border: 1px solid rgba(0, 255, 170, 0.2);
+    border-radius: 6px;
+    padding: 1.2rem;
     display: flex;
-    flex-direction: column;
-    gap: 0.8rem;
+    align-items: center;
+    gap: 1rem;
+    transition: border-color 0.3s;
+    flex-shrink: 0;
 }
 
-.detail-item {
+.account-balance-card:hover {
+    border-color: rgba(0, 255, 170, 0.4);
+}
+
+.balance-icon {
+    font-size: 2.2rem;
+    flex-shrink: 0;
+}
+
+.balance-info {
+    flex: 1;
     display: flex;
     justify-content: space-between;
     align-items: center;
 }
 
-.detail-label {
-    color: var(--text-dim);
-    font-size: 0.8rem;
+.balance-amount {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
 }
 
-.detail-value {
+.value-amount {
+    font-size: 1.8rem;
+    font-weight: bold;
+    color: var(--accent-green);
+    text-shadow: 0 0 10px rgba(0, 255, 170, 0.3);
+}
+
+.currency-label {
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    font-weight: 500;
+}
+
+.balance-change {
+    display: flex;
+    align-items: baseline;
+    gap: 0.3rem;
+    flex-shrink: 0;
+}
+
+.balance-pnl {
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.balance-pnl.positive {
+    color: var(--accent-red);
+}
+
+.balance-pnl.negative {
+    color: var(--accent-green);
+}
+
+.balance-percent {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    font-weight: 500;
+}
+
+.balance-percent.positive {
+    color: var(--accent-red);
+}
+
+.balance-percent.negative {
+    color: var(--accent-green);
+}
+
+/* 风险指标 */
+.risk-metrics {
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 1.2rem;
+    transition: border-color 0.3s;
+    flex-shrink: 0;
+}
+
+.risk-metrics:hover {
+    border-color: rgba(0, 255, 170, 0.3);
+}
+
+.risk-metrics-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.8rem;
+    border-bottom: 1px solid rgba(0, 255, 170, 0.1);
+}
+
+.metrics-icon {
+    font-size: 1.1rem;
+}
+
+.metrics-title {
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
+
+.metrics-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+}
+
+.metric-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.metric-label {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+}
+
+.metric-value {
     color: var(--text-secondary);
     font-size: 0.9rem;
     font-weight: bold;
 }
 
-.detail-value.positive {
+.metric-value.positive {
     color: var(--accent-red);
 }
 
-.detail-value.negative {
+.metric-value.negative {
     color: var(--accent-green);
+}
+
+/* 风险状态 */
+.risk-status {
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 1rem 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    transition: all 0.3s;
+    flex: 1;
+    min-height: 0;
+}
+
+.risk-status.safe {
+    border-color: rgba(0, 255, 170, 0.4);
+    background-color: rgba(0, 255, 170, 0.08);
+}
+
+.risk-status.warning {
+    border-color: rgba(255, 255, 0, 0.4);
+    background-color: rgba(255, 255, 0, 0.08);
+}
+
+.risk-status.danger {
+    border-color: rgba(255, 0, 0, 0.4);
+    background-color: rgba(255, 0, 0, 0.08);
+}
+
+.status-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    font-weight: bold;
+    flex-shrink: 0;
+}
+
+.risk-status.safe .status-icon {
+    background-color: var(--accent-green);
+    color: var(--bg-primary);
+}
+
+.risk-status.warning .status-icon {
+    background-color: var(--accent-yellow);
+    color: var(--bg-primary);
+}
+
+.risk-status.danger .status-icon {
+    background-color: var(--accent-red);
+    color: var(--bg-primary);
+}
+
+.status-info {
+    flex: 1;
+}
+
+.status-label {
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.status-desc {
+    color: var(--text-dim);
+    font-size: 0.7rem;
+    line-height: 1.4;
 }
 
 /* Positions Cards - Small cards under account section */
@@ -675,6 +836,8 @@ body {
 }
 
 .positions-container {
+    max-height: 600px;
+    overflow-y: auto;
     overflow-x: auto;
     max-width: 100%;
     -webkit-overflow-scrolling: touch;
@@ -684,25 +847,34 @@ body {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.9rem;
-    min-width: 600px;
+    min-width: 700px;
 }
 
 .positions-table thead {
     border-bottom: 1px solid var(--border-color);
+    position: sticky;
+    top: 0;
+    z-index: 10;
 }
 
 .positions-table th {
-    padding: 0.8rem;
+    padding: 0.75rem 0.6rem;
     text-align: left;
     color: var(--text-dim);
-    font-weight: bold;
-    font-size: 0.85rem;
+    font-weight: 600;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background-color: var(--bg-secondary);
+    position: sticky;
+    top: 0;
 }
 
 .positions-table td {
-    padding: 0.8rem;
+    padding: 0.75rem 0.6rem;
     color: var(--text-secondary);
     border-bottom: 1px solid var(--border-color);
+    font-size: 0.88rem;
 }
 
 .positions-table tbody tr {
@@ -720,14 +892,52 @@ body {
     padding: 2rem;
 }
 
+/* 持仓表格特殊样式 - 与交易历史统一 */
+.positions-table .symbol {
+    color: var(--accent-green);
+    font-weight: bold;
+    font-size: 0.9rem;
+}
+
+.positions-table .side {
+    padding: 0.2rem 0.45rem;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    display: inline-block;
+    min-width: 48px;
+    text-align: center;
+}
+
+.positions-table .side.long {
+    background-color: rgba(0, 255, 170, 0.1);
+    color: var(--accent-green);
+}
+
+.positions-table .side.short {
+    background-color: rgba(255, 82, 82, 0.1);
+    color: var(--accent-red);
+}
+
+.positions-table .profit {
+    color: var(--accent-red);
+    font-weight: 600;
+}
+
+.positions-table .loss {
+    color: var(--accent-green);
+    font-weight: 600;
+}
+
+/* 兼容旧样式 */
 .positions-table td.positive {
     color: var(--accent-red);
-    font-weight: bold;
+    font-weight: 600;
 }
 
 .positions-table td.negative {
     color: var(--accent-green);
-    font-weight: bold;
+    font-weight: 600;
 }
 
 /* Trades Section */
@@ -775,21 +985,29 @@ body {
 
 .trades-table thead {
     border-bottom: 1px solid var(--border-color);
+    position: sticky;
+    top: 0;
+    z-index: 10;
 }
 
 .trades-table th {
-    padding: 0.8rem;
+    padding: 0.75rem 0.6rem;
     text-align: left;
     color: var(--text-dim);
-    font-weight: bold;
-    font-size: 0.85rem;
+    font-weight: 600;
+    font-size: 0.9rem;
     text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background-color: var(--bg-secondary);
+    position: sticky;
+    top: 0;
 }
 
 .trades-table td {
-    padding: 0.8rem;
+    padding: 0.75rem 0.6rem;
     color: var(--text-secondary);
     border-bottom: 1px solid var(--border-color);
+    font-size: 0.88rem;
 }
 
 .trades-table tbody tr {
@@ -811,6 +1029,7 @@ body {
 .trades-table .symbol {
     color: var(--accent-green);
     font-weight: bold;
+    font-size: 0.9rem;
 }
 
 .trades-table .type {
@@ -831,25 +1050,33 @@ body {
 }
 
 .trades-table .side {
-    font-weight: 500;
+    padding: 0.2rem 0.45rem;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    display: inline-block;
+    min-width: 48px;
+    text-align: center;
 }
 
 .trades-table .side.long {
-    color: var(--accent-red);
+    background-color: rgba(0, 255, 170, 0.1);
+    color: var(--accent-green);
 }
 
 .trades-table .side.short {
-    color: var(--accent-green);
+    background-color: rgba(255, 82, 82, 0.1);
+    color: var(--accent-red);
 }
 
 .trades-table .profit {
     color: var(--accent-red);
-    font-weight: bold;
+    font-weight: 600;
 }
 
 .trades-table .loss {
     color: var(--accent-green);
-    font-weight: bold;
+    font-weight: 600;
 }
 
 .trades-table .na {
@@ -1113,6 +1340,54 @@ body {
         grid-column: 1 / 2;
         grid-row: 5 / 6;
     }
+
+    /* 中等屏幕也隐藏交易历史表格的部分非关键列 - 只隐藏数量列 */
+    .trades-table th:nth-child(5),
+    .trades-table td:nth-child(5),
+    .trades-table th:nth-child(6),
+    .trades-table td:nth-child(6),
+    .trades-table th:nth-child(7),
+    .trades-table td:nth-child(7) {
+        display: none;
+    }
+
+    /* 减小表格列间距 */
+    .positions-table th,
+    .positions-table td,
+    .trades-table th,
+    .trades-table td {
+        padding: 0.75rem 0.4rem;
+    }
+
+    /* 调整表格最小宽度 */
+    .trades-table {
+        min-width: 600px;
+    }
+
+    .positions-table {
+        min-width: 550px;
+    }
+}
+
+/* 针对较小的平板和大屏手机进行额外优化 */
+@media (max-width: 900px) {
+    /* 进一步减小表格列间距 */
+    .positions-table th,
+    .positions-table td,
+    .trades-table th,
+    .trades-table td {
+        padding: 0.6rem 0.3rem;
+        font-size: 0.85rem;
+    }
+
+    /* 进一步减小表格最小宽度 */
+    .trades-table {
+        min-width: 500px;
+    }
+
+    .positions-table {
+        min-width: 450px;
+    }
 }
 
 @media (max-width: 768px) {
@@ -1348,6 +1623,7 @@ body {
     
     .account-header {
         margin-bottom: 0.6rem;
+        padding-bottom: 0.4rem;
     }
     
     .account-details {
@@ -1380,7 +1656,15 @@ body {
     .trades-table th,
     .trades-table td {
         padding: 0.35rem 0.2rem;
-        white-space: nowrap;
+    }
+
+    /* 小屏幕上减小表格最小宽度，避免出现横向滚动 */
+    .trades-table {
+        min-width: 400px;
+    }
+
+    .positions-table {
+        min-width: 350px;
     }
 
     /* 移动端隐藏持仓表格的一些列 */
@@ -1393,13 +1677,13 @@ body {
         display: none;
     }
 
-    /* 移动端隐藏交易历史表格的一些列 - 隐藏价格，显示数量（开仓价值） */
+    /* 移动端隐藏交易历史表格的非关键列 - 隐藏开仓价格、平仓价格、数量 */
     .trades-table th:nth-child(5),
     .trades-table td:nth-child(5),
+    .trades-table th:nth-child(6),
+    .trades-table td:nth-child(6),
     .trades-table th:nth-child(7),
-    .trades-table td:nth-child(7),
-    .trades-table th:nth-child(8),
-    .trades-table td:nth-child(8) {
+    .trades-table td:nth-child(7) {
         display: none;
     }
 
@@ -1550,12 +1834,13 @@ body {
         display: none;
     }
 
+    /* 移动端隐藏交易历史表格的非关键列 - 隐藏开仓价格、平仓价格、数量 */
     .trades-table th:nth-child(5),
     .trades-table td:nth-child(5),
+    .trades-table th:nth-child(6),
+    .trades-table td:nth-child(6),
     .trades-table th:nth-child(7),
-    .trades-table td:nth-child(7),
-    .trades-table th:nth-child(8),
-    .trades-table td:nth-child(8) {
+    .trades-table td:nth-child(7) {
         display: none;
     }
     

@@ -233,6 +233,89 @@ export function createApiRoutes() {
   });
 
   /**
+   * 获取完整交易记录 - 合并开仓和平仓记录
+   */
+  app.get("/api/completed-trades", async (c) => {
+    try {
+      const limit = Number.parseInt(c.req.query("limit") || "50");
+      
+      // 获取所有平仓记录
+      const result = await dbClient.execute({
+        sql: `SELECT * FROM trades WHERE type = 'close' ORDER BY timestamp DESC LIMIT ?`,
+        args: [limit],
+      });
+      
+      if (!result.rows || result.rows.length === 0) {
+        return c.json({ trades: [] });
+      }
+      
+      // 对于每个平仓记录，找到对应的开仓记录
+      const completedTrades = [];
+      
+      for (const closeRow of result.rows) {
+        // 查找对应的开仓记录（同币种、同方向、时间更早）
+        const openResult = await dbClient.execute({
+          sql: `SELECT * FROM trades 
+                WHERE symbol = ? 
+                AND side = ? 
+                AND type = 'open' 
+                AND timestamp < ?
+                ORDER BY timestamp DESC 
+                LIMIT 1`,
+          args: [closeRow.symbol, closeRow.side, closeRow.timestamp],
+        });
+        
+        if (openResult.rows && openResult.rows.length > 0) {
+          const openRow = openResult.rows[0];
+          
+          // 计算持仓时间
+          const openTime = new Date(openRow.timestamp as string);
+          const closeTime = new Date(closeRow.timestamp as string);
+          const holdingTimeMs = closeTime.getTime() - openTime.getTime();
+          
+          // 转换为友好的时间格式
+          const hours = Math.floor(holdingTimeMs / (1000 * 60 * 60));
+          const minutes = Math.floor((holdingTimeMs % (1000 * 60 * 60)) / (1000 * 60));
+          const holdingTime = hours > 0 ? `${hours}时${minutes}分` : `${minutes}分`;
+          
+          // 计算总手续费
+          const openFee = typeof openRow.fee === 'string' ? Number.parseFloat(openRow.fee || "0") : Number(openRow.fee || 0);
+          const closeFee = typeof closeRow.fee === 'string' ? Number.parseFloat(closeRow.fee || "0") : Number(closeRow.fee || 0);
+          const totalFee = openFee + closeFee;
+          
+          // 安全地转换数值
+          const leverage = typeof openRow.leverage === 'string' ? Number.parseInt(openRow.leverage || "1") : Number(openRow.leverage || 1);
+          const openPrice = typeof openRow.price === 'string' ? Number.parseFloat(openRow.price || "0") : Number(openRow.price || 0);
+          const closePrice = typeof closeRow.price === 'string' ? Number.parseFloat(closeRow.price || "0") : Number(closeRow.price || 0);
+          const quantity = typeof closeRow.quantity === 'string' ? Number.parseFloat(closeRow.quantity || "0") : Number(closeRow.quantity || 0);
+          const pnl = closeRow.pnl ? (typeof closeRow.pnl === 'string' ? Number.parseFloat(closeRow.pnl) : Number(closeRow.pnl)) : 0;
+          
+          completedTrades.push({
+            id: closeRow.id,
+            symbol: closeRow.symbol,
+            side: closeRow.side, // long/short
+            leverage,
+            openPrice,
+            closePrice,
+            quantity,
+            openTime: openRow.timestamp,
+            closeTime: closeRow.timestamp,
+            holdingTime,
+            holdingTimeMs,
+            totalFee,
+            pnl,
+          });
+        }
+      }
+      
+      return c.json({ trades: completedTrades });
+    } catch (error: any) {
+      logger.error("获取完整交易记录失败:", error);
+      return c.json({ error: error.message }, 500);
+    }
+  });
+
+  /**
    * 获取 Agent 决策日志
    */
   app.get("/api/logs", async (c) => {

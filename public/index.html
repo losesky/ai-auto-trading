@@ -208,36 +208,57 @@
     <!-- Account Value Section -->
     <section class="account-section">
       <div class="account-header">
-        <h2>总资产</h2>
+        <h2>账户总览</h2>
       </div>
-      <div class="account-value">
-        <span class="currency-symbol">$</span>
-        <span class="value-amount" id="account-value">0.00</span>
-      </div>
-      <div class="value-change">
-        <span class="change-amount" id="value-change">+$0.00</span>
-        <span class="change-percent" id="value-percent">(+0.00%)</span>
-      </div>
-      <div class="account-details">
-        <div class="detail-item">
-          <span class="detail-label">可用余额</span>
-          <span class="detail-value" id="available-balance">0.00</span>
-        </div>
-        <div class="detail-item">
-          <span class="detail-label">未实现盈亏</span>
-          <span class="detail-value" id="unrealised-pnl">+0.00</span>
+      
+      <!-- 总资产 -->
+      <div class="account-balance-card">
+        <div class="balance-info">
+          <div class="balance-amount">
+            <span class="value-amount" id="account-value">-</span>
+            <span class="currency-label">USDT</span>
+          </div>
+          <div class="balance-change">
+            <span class="balance-pnl" id="balance-pnl">+0.00</span>
+            <span class="balance-percent" id="balance-percent">(+0.00%)</span>
+          </div>
         </div>
       </div>
 
-      <!-- Current Positions Cards -->
-      <div class="positions-cards" id="positions-cards">
-        <div class="positions-cards-header">
-          <span class="positions-cards-title">当前持仓</span>
+      <!-- 风险指标 -->
+      <div class="risk-metrics">
+        <div class="risk-metrics-header">
+          <span class="metrics-icon">📊</span>
+          <span class="metrics-title">风险指标</span>
         </div>
-        <div class="positions-cards-container" id="positions-cards-container">
-          <div class="positions-cards-empty">暂无持仓</div>
+        
+        <div class="metrics-list">
+          <div class="metric-item">
+            <span class="metric-label">保证金比率</span>
+            <span class="metric-value" id="margin-ratio">-</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">可用余额</span>
+            <span class="metric-value" id="available-balance">-</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">未实现盈亏</span>
+            <span class="metric-value" id="unrealised-pnl">-</span>
+          </div>
         </div>
       </div>
+
+      <!-- 风险状态 -->
+      <div class="risk-status safe">
+        <div class="status-icon">✓</div>
+        <div class="status-info">
+          <div class="status-label">风险状态：安全</div>
+          <div class="status-desc" id="risk-status-desc">保证金比率低于50%为安全，超过180%需警惕</div>
+        </div>
+      </div>
+
+      <!-- Current Positions Cards (Removed) -->
+      <!-- 移除了旧的持仓卡片显示 -->
     </section>
 
         <!-- Positions Section -->
@@ -273,20 +294,21 @@
                 <table class="trades-table">
                     <thead>
                         <tr>
-                            <th>时间</th>
+                            <th>平仓时间</th>
                             <th>币种</th>
-                            <th>类型</th>
                             <th>方向</th>
-                            <th>价格</th>
-                            <th>数量</th>
                             <th>杠杆</th>
+                            <th>开仓价格</th>
+                            <th>平仓价格</th>
+                            <th>数量</th>
+                            <th>持仓时间</th>
                             <th>手续费</th>
-                            <th>盈亏</th>
+                            <th>净盈亏</th>
                         </tr>
                     </thead>
                     <tbody id="trades-body">
                         <tr>
-                            <td colspan="9" class="loading">加载中...</td>
+                            <td colspan="10" class="loading">加载中...</td>
                         </tr>
                     </tbody>
                 </table>

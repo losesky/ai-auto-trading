@@ -91,42 +91,65 @@ class TradingMonitor {
             const totalBalanceWithPnl = data.totalBalance + data.unrealisedPnl;
             
             // 更新总资产
-        const accountValueEl = document.getElementById('account-value');
+            const accountValueEl = document.getElementById('account-value');
             if (accountValueEl) {
                 accountValueEl.textContent = totalBalanceWithPnl.toFixed(2);
+            }
+
+            // 计算总盈亏和盈亏比例
+            const totalPnl = totalBalanceWithPnl - data.initialBalance;
+            const pnlPercent = (totalPnl / data.initialBalance) * 100;
+            const isProfit = totalPnl >= 0;
+            
+            // 更新总盈亏
+            const balancePnlEl = document.getElementById('balance-pnl');
+            if (balancePnlEl) {
+                balancePnlEl.textContent = `${isProfit ? '+' : ''}${totalPnl.toFixed(2)}`;
+                balancePnlEl.className = 'balance-pnl ' + (isProfit ? 'positive' : 'negative');
+            }
+            
+            // 更新盈亏比例
+            const balancePercentEl = document.getElementById('balance-percent');
+            if (balancePercentEl) {
+                balancePercentEl.textContent = `(${isProfit ? '+' : ''}${pnlPercent.toFixed(2)}%)`;
+                balancePercentEl.className = 'balance-percent ' + (isProfit ? 'positive' : 'negative');
             }
 
             // 更新可用余额
             const availableBalanceEl = document.getElementById('available-balance');
             if (availableBalanceEl) {
-                availableBalanceEl.textContent = data.availableBalance.toFixed(2);
+                availableBalanceEl.textContent = `${data.availableBalance.toFixed(2)} USDT`;
             }
 
             // 更新未实现盈亏（带符号和颜色）
             const unrealisedPnlEl = document.getElementById('unrealised-pnl');
             if (unrealisedPnlEl) {
                 const pnlValue = (data.unrealisedPnl >= 0 ? '+' : '') + data.unrealisedPnl.toFixed(2);
-                unrealisedPnlEl.textContent = pnlValue;
-                unrealisedPnlEl.className = 'detail-value ' + (data.unrealisedPnl >= 0 ? 'positive' : 'negative');
+                unrealisedPnlEl.textContent = `${pnlValue} USDT`;
+                unrealisedPnlEl.className = 'metric-value ' + (data.unrealisedPnl >= 0 ? 'positive' : 'negative');
             }
 
-            // 更新收益（总资产 - 初始资金）
-        const valueChangeEl = document.getElementById('value-change');
-        const valuePercentEl = document.getElementById('value-percent');
-
-            if (valueChangeEl && valuePercentEl) {
-                // 收益率 = (总资产(含未实现盈亏) - 初始资金) / 初始资金 * 100
-                const totalPnl = totalBalanceWithPnl - data.initialBalance;
-                const returnPercent = (totalPnl / data.initialBalance) * 100;
-                const isPositive = totalPnl >= 0;
-                
-                valueChangeEl.textContent = `${isPositive ? '+' : ''}$${Math.abs(totalPnl).toFixed(2)}`;
-                valuePercentEl.textContent = `(${isPositive ? '+' : ''}${returnPercent.toFixed(2)}%)`;
-                
-                // 更新颜色
-                valueChangeEl.className = 'change-amount ' + (isPositive ? '' : 'negative');
-                valuePercentEl.className = 'change-percent ' + (isPositive ? '' : 'negative');
+            // 计算保证金比率
+            // 保证金比率 = (已用保证金 / 总资产) * 100
+            // 已用保证金 = 总资产 - 可用余额
+            const usedMargin = totalBalanceWithPnl - data.availableBalance;
+            const marginRatio = totalBalanceWithPnl > 0 ? (usedMargin / totalBalanceWithPnl) * 100 : 0;
+            
+            const marginRatioEl = document.getElementById('margin-ratio');
+            if (marginRatioEl) {
+                marginRatioEl.textContent = `${marginRatio.toFixed(2)}%`;
+                // 根据保证金比率设置颜色
+                if (marginRatio < 50) {
+                    marginRatioEl.className = 'metric-value';
+                } else if (marginRatio < 180) {
+                    marginRatioEl.className = 'metric-value';
+                } else {
+                    marginRatioEl.className = 'metric-value negative';
+                }
             }
+
+            // 更新风险状态
+            this.updateRiskStatus(marginRatio);
             
         } catch (error) {
             console.error('加载账户数据失败:', error);
@@ -165,25 +188,47 @@ class TradingMonitor {
             });
             this.updateTickerPrices();
 
+            // 价格显示 - 智能精度（与交易历史统一）
+            const formatPrice = (price) => {
+                if (price >= 1000) {
+                    return price.toFixed(2);
+                } else if (price >= 1) {
+                    return price.toFixed(2);
+                } else if (price >= 0.1) {
+                    return price.toFixed(3);
+                } else if (price >= 0.01) {
+                    return price.toFixed(4);
+                } else if (price >= 0.001) {
+                    return price.toFixed(5);
+                } else {
+                    return price.toFixed(6);
+                }
+            };
+
             // 更新持仓表格
             if (positionsBody) {
                 positionsBody.innerHTML = data.positions.map(pos => {
                     const profitPercent = ((pos.unrealizedPnl / pos.openValue) * 100).toFixed(2);
-                    const sideText = pos.side === 'long' ? '做多' : '做空';
-                    const sideClass = pos.side === 'long' ? 'positive' : 'negative';
+                    
+                    // 方向显示 - 与交易历史统一样式
+                    const sideText = pos.side === 'long' ? 'LONG' : 'SHORT';
+                    const sideClass = pos.side === 'long' ? 'long' : 'short';
                     const leverage = pos.leverage || '-';
+                    
+                    // 盈亏显示
+                    const pnlClass = pos.unrealizedPnl >= 0 ? 'profit' : 'loss';
+                    const pnlText = pos.unrealizedPnl >= 0 ? `+$${pos.unrealizedPnl.toFixed(2)}` : `-$${Math.abs(pos.unrealizedPnl).toFixed(2)}`;
+                    
                     return `
                         <tr>
-                            <td>${pos.symbol}</td>
-                            <td class="${sideClass}">${sideText}</td>
+                            <td><span class="symbol">${pos.symbol}</span></td>
+                            <td><span class="side ${sideClass}">${sideText}</span></td>
                             <td>${leverage}x</td>
-                            <td>$${pos.entryPrice.toFixed(4)}</td>
+                            <td>$${formatPrice(pos.entryPrice)}</td>
                             <td>$${pos.openValue.toFixed(2)}</td>
-                            <td>$${pos.currentPrice.toFixed(4)}</td>
-                            <td class="${pos.unrealizedPnl >= 0 ? 'positive' : 'negative'}">
-                                ${pos.unrealizedPnl >= 0 ? '+' : ''}$${pos.unrealizedPnl.toFixed(2)}
-                            </td>
-                            <td class="${pos.unrealizedPnl >= 0 ? 'positive' : 'negative'}">
+                            <td>$${formatPrice(pos.currentPrice)}</td>
+                            <td><span class="${pnlClass}">${pnlText}</span></td>
+                            <td class="${pnlClass}">
                                 ${pos.unrealizedPnl >= 0 ? '+' : ''}${profitPercent}%
                             </td>
                         </tr>
@@ -219,7 +264,7 @@ class TradingMonitor {
     // 加载交易记录 - 使用和 index.html 相同的布局
     async loadTradesData() {
         try {
-            const response = await fetch('/api/trades?limit=100');
+            const response = await fetch('/api/completed-trades?limit=25');
             const data = await response.json();
             
             if (data.error) {
@@ -232,7 +277,7 @@ class TradingMonitor {
             
             if (!data.trades || data.trades.length === 0) {
                 if (tradesBody) {
-                    tradesBody.innerHTML = '<tr><td colspan="9" class="empty-state">暂无交易记录</td></tr>';
+                    tradesBody.innerHTML = '<tr><td colspan="10" class="empty-state">暂无交易记录</td></tr>';
                 }
                 if (countEl) {
                     countEl.textContent = '';
@@ -241,45 +286,72 @@ class TradingMonitor {
             }
             
             if (countEl) {
-                countEl.textContent = `(${data.trades.length})`;
+                countEl.textContent = `(最近${data.trades.length}条)`;
             }
             
             if (tradesBody) {
                 tradesBody.innerHTML = data.trades.map(trade => {
-                    const date = new Date(trade.timestamp);
-                    const timeStr = date.toLocaleString('zh-CN', {
-                        timeZone: 'Asia/Shanghai',
-                        month: '2-digit',
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit'
-                    });
-                    
-                    // 类型显示
-                    const typeText = trade.type === 'open' ? '开仓' : '平仓';
-                    const typeClass = trade.type === 'open' ? 'buy' : 'sell';
+                    // 平仓时间
+                    const closeDate = new Date(trade.closeTime);
+                    const timeStr = `${String(closeDate.getMonth() + 1).padStart(2, '0')}/${String(closeDate.getDate()).padStart(2, '0')} ${String(closeDate.getHours()).padStart(2, '0')}:${String(closeDate.getMinutes()).padStart(2, '0')}`;
                     
                     // 方向显示
-                    const sideText = trade.side === 'long' ? '做多' : '做空';
+                    const sideText = trade.side === 'long' ? 'LONG' : 'SHORT';
                     const sideClass = trade.side === 'long' ? 'long' : 'short';
                     
-                    // 盈亏显示（仅平仓时显示）
-                    const pnlHtml = trade.type === 'close' && trade.pnl !== null && trade.pnl !== undefined
-                        ? `<span class="${trade.pnl >= 0 ? 'profit' : 'loss'}">${trade.pnl >= 0 ? '+' : ''}${trade.pnl.toFixed(2)}</span>`
-                        : '<span class="na">-</span>';
+                    // 价格显示 - 智能精度（根据价格大小动态调整小数位）
+                    const formatPrice = (price) => {
+                        if (price >= 1000) {
+                            // 大于等于1000（如BTC），显示2位小数
+                            return price.toFixed(2);
+                        } else if (price >= 1) {
+                            // 1到1000之间（如ETH、BNB），显示2位小数
+                            return price.toFixed(2);
+                        } else if (price >= 0.1) {
+                            // 0.1到1之间，显示4位小数
+                            return price.toFixed(4);
+                        } else if (price >= 0.01) {
+                            // 0.01到0.1之间，显示4位小数
+                            return price.toFixed(4);
+                        } else if (price >= 0.001) {
+                            // 0.001到0.01之间，显示5位小数
+                            return price.toFixed(5);
+                        } else {
+                            // 小于0.001，显示6位小数
+                            return price.toFixed(6);
+                        }
+                    };
+                    
+                    // 数量显示 - 智能精度
+                    let quantityText;
+                    if (trade.quantity >= 1) {
+                        // 大于等于1，显示整数或1位小数
+                        quantityText = trade.quantity % 1 === 0 ? trade.quantity.toFixed(0) : trade.quantity.toFixed(1);
+                    } else if (trade.quantity >= 0.01) {
+                        // 0.01到1之间，显示2位小数
+                        quantityText = trade.quantity.toFixed(2);
+                    } else {
+                        // 小于0.01，显示4位小数
+                        quantityText = trade.quantity.toFixed(4);
+                    }
+                    
+                    // 盈亏显示
+                    const pnl = trade.pnl || 0;
+                    const pnlClass = pnl >= 0 ? 'profit' : 'loss';
+                    const pnlText = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`;
                     
                     return `
                         <tr>
                             <td>${timeStr}</td>
                             <td><span class="symbol">${trade.symbol}</span></td>
-                            <td><span class="type ${typeClass}">${typeText}</span></td>
                             <td><span class="side ${sideClass}">${sideText}</span></td>
-                            <td>${trade.price.toFixed(2)}</td>
-                            <td>${trade.quantity}</td>
                             <td>${trade.leverage}x</td>
-                            <td>${trade.fee.toFixed(4)}</td>
-                            <td>${pnlHtml}</td>
+                            <td>$${formatPrice(trade.openPrice)}</td>
+                            <td>$${formatPrice(trade.closePrice)}</td>
+                            <td>${quantityText}</td>
+                            <td>${trade.holdingTime}</td>
+                            <td>$${trade.totalFee.toFixed(2)}</td>
+                            <td><span class="${pnlClass}">${pnlText}</span></td>
                         </tr>
                     `;
                 }).join('');
@@ -614,9 +686,33 @@ class TradingMonitor {
         this.equityChart.update('none'); // 无动画更新
     }
 
-    // 初始化时间范围选择器（已禁用切换功能）
-    initTimeframeSelector() {
-        // 时间范围已固定为24小时，不再支持切换
+    // 更新风险状态
+    updateRiskStatus(marginRatio) {
+        const riskStatusEl = document.querySelector('.risk-status');
+        const statusLabelEl = document.querySelector('.status-label');
+        const statusDescEl = document.getElementById('risk-status-desc');
+        
+        if (!riskStatusEl || !statusLabelEl || !statusDescEl) return;
+        
+        // 移除所有状态类
+        riskStatusEl.classList.remove('safe', 'warning', 'danger');
+        
+        if (marginRatio < 50) {
+            // 安全状态
+            riskStatusEl.classList.add('safe');
+            statusLabelEl.textContent = '风险状态：安全';
+            statusDescEl.textContent = '保证金比率低于50%为安全，超过180%需警惕';
+        } else if (marginRatio < 180) {
+            // 警告状态
+            riskStatusEl.classList.add('warning');
+            statusLabelEl.textContent = '风险状态：警告';
+            statusDescEl.textContent = '保证金比率在50%-180%之间，建议关注仓位';
+        } else {
+            // 危险状态
+            riskStatusEl.classList.add('danger');
+            statusLabelEl.textContent = '风险状态：危险';
+            statusDescEl.textContent = '保证金比率超过180%，强烈建议降低仓位！';
+        }
     }
 }
 
