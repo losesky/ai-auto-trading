@@ -6,7 +6,7 @@
 
 [![VoltAgent](https://img.shields.io/badge/Framework-VoltAgent-purple.svg)](https://voltagent.dev)
 [![OpenAI Compatible](https://img.shields.io/badge/AI-OpenAI_Compatible-orange.svg)](https://openrouter.ai)
-[![Gate.io](https://img.shields.io/badge/Exchange-Gate.io-00D4AA.svg)](https://www.gatesite.org/signup/VVVEA10LVQ?ref_type=103)
+[![Gate.io](https://img.shields.io/badge/Exchange-Gate.io-00D4AA.svg)](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103)
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Node.js](https://img.shields.io/badge/Runtime-Node.js%2020+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
@@ -18,9 +18,9 @@
 
 ## 系统概述
 
-ai-auto-trading 是一个 AI 驱动的加密货币自动交易系统，将大语言模型智能与量化交易实践深度融合。系统基于 Agent 框架构建，通过赋予 AI 完全的市场分析和交易决策自主权，实现真正的智能化交易。
+ai-auto-trading 是一个 AI 驱动的加密货币自动交易系统，将大语言模型智能与量化交易实践深度融合。系统基于 VoltAgent 框架构建，通过赋予 AI 完全的市场分析和交易决策自主权，实现真正的智能化交易。
 
-本系统采用**最小人工干预**的设计理念，摒弃传统的硬编码交易规则，让 AI 模型基于原始市场数据进行自主学习和决策。系统集成 Gate.io 交易所（支持测试网和正式网），提供完整的永续合约交易能力，覆盖 BTC、ETH、SOL 等主流加密货币，支持从数据采集、智能分析、风险管理到交易执行的全流程自动化。
+本系统采用**AI 自主决策**的设计理念，摒弃传统的硬编码交易规则，让 AI 模型基于实时市场数据和技术指标进行自主学习和决策。系统集成 Gate.io 交易所（支持测试网和正式网），提供完整的永续合约交易能力，覆盖 BTC、ETH、SOL 等主流加密货币，支持从数据采集、智能分析、风险管理到交易执行的全流程自动化。
 
 ![ai-auto-trading](./public/image.png)
 
@@ -35,14 +35,13 @@ ai-auto-trading 是一个 AI 驱动的加密货币自动交易系统，将大语
 - [命令参考](#命令参考)
 - [生产部署](#生产部署)
 - [故障排查](#故障排查)
-- [开发指南](#开发指南)
 - [API 文档](#api-文档)
 - [参与贡献](#参与贡献)
 - [开源协议](#开源协议)
 
 ## 系统架构
 
-```
+```bash
 ┌─────────────────────────────────────────────────────────┐
 │                   Trading Agent (AI)                    │
 │              (DeepSeek V3.2 / Gork4 / Claude)           │
@@ -80,7 +79,7 @@ ai-auto-trading 是一个 AI 驱动的加密货币自动交易系统，将大语
 |------|------|------|
 | 框架 | [VoltAgent](https://voltagent.dev) | AI Agent 编排与管理 |
 | AI 提供商 | OpenAI 兼容 API | 支持 OpenRouter、OpenAI、DeepSeek 等兼容供应商 |
-| 交易所 | [Gate.io](https://www.gatesite.org/signup/VVVEA10LVQ?ref_type=103) | 加密货币交易(测试网 & 正式网) |
+| 交易所 | [Gate.io](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103) | 加密货币交易(测试网 & 正式网) |
 | 数据库 | LibSQL (SQLite) | 本地数据持久化 |
 | Web 服务器 | Hono | 高性能 HTTP 框架 |
 | 开发语言 | TypeScript | 类型安全开发 |
@@ -88,57 +87,55 @@ ai-auto-trading 是一个 AI 驱动的加密货币自动交易系统，将大语
 
 ### 核心设计理念
 
-- **数据驱动**: 向 AI 提供原始市场数据，不进行预处理或添加主观判断
-- **自主决策**: AI 拥有完全的分析和交易决策权限，无硬编码策略限制
-- **多维度分析**: 聚合多时间框架数据(5分钟、15分钟、1小时、4小时)提供全面市场视图
-- **透明可追溯**: 完整记录每一次决策过程，便于回测分析和策略优化
-- **持续学习**: 系统自动积累交易经验，不断优化决策模型
+- **AI 自主决策**：基于实时市场数据和技术指标，AI 完全自主决策
+- **多策略支持**：5种交易策略（超短线、波段趋势、稳健、平衡、激进）
+- **多时间框架**：聚合 5分钟、15分钟、1小时、4小时数据提供全面市场视图
+- **智能风控**：止损、止盈、移动止盈、分批止盈、峰值回撤保护
+- **透明可追溯**：完整记录每一次决策过程，便于回测分析和策略优化
 
 ## 核心特性
 
 ### AI 驱动决策
 
-- **模型支持**: DeepSeek V3.2、Grok4、Claude 4.5、Gemini Pro 2.5
-- **数据输入**: 实时价格、成交量、K线形态、技术指标
-- **自主分析**: 无预配置交易信号
-- **多时间框架**: 跨多个时间窗口聚合数据
-- **风险管理**: AI 控制的仓位规模和杠杆管理
+- **模型支持**：DeepSeek V3.2、Grok 4、Claude 4.5、Gemini 2.5 等
+- **数据输入**：实时价格、成交量、K线形态、技术指标（RSI、MACD、布林带等）
+- **自主分析**：基于市场数据和技术指标自主决策，无硬编码规则
+- **多时间框架**：5分钟、15分钟、1小时、4小时多维度分析
+- **5种策略**：超短线、波段趋势、稳健、平衡、激进
 
 ### 完整交易功能
 
-- **支持资产**: BTC、ETH、SOL、BNB、XRP、DOGE、GT、TRUMP、ADA、WLFI
-- **合约类型**: USDT 结算永续合约
-- **杠杆范围**: 1倍至10倍(可配置)
-- **订单类型**: 市价单、止损、止盈
-- **持仓方向**: 做多和做空
-- **实时执行**: 通过 Gate.io API 亚秒级下单
+- **支持币种**：BTC、ETH、SOL、BNB、XRP、DOGE、BCH、HYPE、SUI、ADA、AVAX、LTC、LINK 等
+- **合约类型**：USDT 结算永续合约
+- **杠杆范围**：1-15倍（可配置）
+- **订单类型**：市价单、止损、止盈
+- **持仓方向**：做多和做空
+- **智能风控**：止损、止盈、移动止盈、分批止盈、峰值回撤保护
 
 ### 实时监控界面
 
-- **Web 仪表板**: 访问地址 `http://localhost:3100`
-- **账户指标**: 余额、净值、未实现盈亏
-- **持仓概览**: 当前持仓、入场价格、杠杆倍数
-- **交易历史**: 完整的交易记录与时间戳
-- **AI 决策日志**: 透明展示模型推理过程
-- **技术指标**: 市场数据和信号的可视化
+- **Web 仪表板**：访问地址 <http://localhost:3100>
+- **账户指标**：余额、收益率、夏普比率、峰值资产
+- **持仓概览**：实时盈亏、持仓时长、杠杆倍数、峰值回撤
+- **交易历史**：完整的交易记录与时间戳
+- **AI 决策日志**：透明展示模型推理过程
 
-### 风险管理系统
+### 智能风险管理
 
-- **自动止损**: 可配置的百分比止损
-- **止盈订单**: 自动利润兑现
-- **仓位限制**: 每个资产的最大敞口
-- **杠杆控制**: 可配置的最大杠杆
-- **交易节流**: 交易之间的最小间隔
-- **审计追踪**: 完整的数据库日志记录
+- **止损保护**：单笔亏损达-30%强制平仓
+- **时间限制**：持仓超过36小时强制平仓
+- **移动止盈**：盈利达标后自动上移止损线
+- **分批止盈**：分阶段锁定利润，降低回撤风险
+- **峰值回撤保护**：回撤超阈值自动平仓
+- **账户止损止盈**：全局账户级别的止损止盈线
 
 ### 生产就绪部署
 
-- **测试网支持**: 零风险策略验证
-- **进程管理**: PM2 集成确保可靠性
-- **容器化**: Docker 支持隔离部署
-- **自动恢复**: 失败时自动重启
-- **日志记录**: 全面的错误和信息日志
-- **健康监控**: 内置健康检查端点
+- **测试网支持**：零风险策略验证
+- **进程管理**：PM2 守护进程，自动重启
+- **容器化部署**：Docker/Docker Compose 支持
+- **完整日志**：详细的交易和错误日志
+- **数据持久化**：SQLite 本地数据库
 
 ## 快速开始
 
@@ -167,12 +164,16 @@ npm install
 # 服务器配置
 PORT=3100
 
-# 交易参数
-TRADING_INTERVAL_MINUTES=5      # 交易循环间隔
-MAX_LEVERAGE=10                 # 最大杠杆倍数
-MAX_POSITIONS=5                 # 最大持仓数量
-MAX_HOLDING_HOURS=36            # 最大持有时长(小时)
-INITIAL_BALANCE=2000            # 初始资金(USDT)
+# 交易配置
+TRADING_INTERVAL_MINUTES=5                   # 交易周期（分钟）
+TRADING_STRATEGY=balanced                    # 策略：ultra-short/swing-trend/conservative/balanced/aggressive
+TRADING_SYMBOLS=BTC,ETH,SOL,BNB,XRP,DOGE,BCH # 交易币种（逗号分隔）
+MAX_LEVERAGE=15                              # 最大杠杆
+MAX_POSITIONS=5                              # 最大持仓数
+MAX_HOLDING_HOURS=36                         # 最大持仓时长（小时）
+INITIAL_BALANCE=1000                         # 初始资金（USDT）
+ACCOUNT_STOP_LOSS_USDT=50                    # 账户止损线
+ACCOUNT_TAKE_PROFIT_USDT=20000               # 账户止盈线
 
 # 数据库
 DATABASE_URL=file:./.voltagent/trading.db
@@ -188,14 +189,15 @@ OPENAI_BASE_URL=https://openrouter.ai/api/v1  # 可选，支持 OpenRouter、Ope
 AI_MODEL_NAME=deepseek/deepseek-v3.2-exp      # 模型名称
 ```
 
-**API 密钥获取**:
-- OpenRouter: https://openrouter.ai/keys
-- OpenAI: https://platform.openai.com/api-keys
-- DeepSeek: https://platform.deepseek.com/api_keys
-- Gate.io 测试网: https://www.gate.io/testnet
-- Gate.io 正式网: https://www.gatesite.org/signup/VVVEA10LVQ?ref_type=103
+**API 密钥获取**：
 
-> **提示**: 通过上方邀请链接或使用邀请码 `VVVEA10LVQ` 注册 Gate.io 账户，您将获得交易佣金返还优惠。
+- OpenRouter: <https://openrouter.ai/keys>
+- OpenAI: <https://platform.openai.com/api-keys>
+- DeepSeek: <https://platform.deepseek.com/api_keys>
+- Gate.io 测试网: <https://www.gate.io/testnet>
+- Gate.io 正式网: <https://www.gatesite.org/signup/VQBEAwgL?ref_type=103>
+
+> **提示**：通过邀请码 `VQBEAwgL` 注册 Gate.io 可获交易返佣。
 
 ### 数据库初始化
 
@@ -219,7 +221,7 @@ npm run trading:start
 
 ## 项目结构
 
-```
+```bash
 ai-auto-trading/
 ├── src/
 │   ├── index.ts                      # 应用入口
@@ -269,68 +271,72 @@ ai-auto-trading/
 | 变量 | 说明 | 默认值 | 是否必需 |
 |------|------|--------|---------|
 | `PORT` | HTTP 服务器端口 | 3100 | 否 |
-| `TRADING_STRATEGY` | 交易策略(`ultra-short`/`swing-trend`/`conservative`/`balanced`/`aggressive`) | balanced | 否 |
-| `TRADING_INTERVAL_MINUTES` | 交易循环间隔(分钟) | 5 | 否 |
-| `MAX_LEVERAGE` | 最大杠杆倍数 | 10 | 否 |
+| `TRADING_STRATEGY` | 交易策略（ultra-short/swing-trend/conservative/balanced/aggressive） | balanced | 否 |
+| `TRADING_INTERVAL_MINUTES` | 交易周期（分钟） | 5 | 否 |
+| `TRADING_SYMBOLS` | 交易币种列表（逗号分隔） | BTC,ETH,SOL,XRP,BNB,BCH | 否 |
+| `MAX_LEVERAGE` | 最大杠杆倍数 | 15 | 否 |
 | `MAX_POSITIONS` | 最大持仓数量 | 5 | 否 |
-| `MAX_HOLDING_HOURS` | 最大持有时长(小时) | 36 | 否 |
-| `INITIAL_BALANCE` | 初始资金(USDT) | 2000 | 否 |
+| `MAX_HOLDING_HOURS` | 最大持仓时长（小时） | 36 | 否 |
+| `INITIAL_BALANCE` | 初始资金（USDT） | 1000 | 否 |
+| `ACCOUNT_STOP_LOSS_USDT` | 账户止损线（USDT） | 50 | 否 |
+| `ACCOUNT_TAKE_PROFIT_USDT` | 账户止盈线（USDT） | 20000 | 否 |
+| `SYNC_CONFIG_ON_STARTUP` | 启动时同步配置 | true | 否 |
 | `DATABASE_URL` | SQLite 数据库文件路径 | file:./.voltagent/trading.db | 否 |
 | `GATE_API_KEY` | Gate.io API 密钥 | - | 是 |
 | `GATE_API_SECRET` | Gate.io API 密钥 | - | 是 |
 | `GATE_USE_TESTNET` | 使用测试网环境 | true | 否 |
 | `OPENAI_API_KEY` | OpenAI 兼容的 API 密钥 | - | 是 |
-| `OPENAI_BASE_URL` | API 基础地址 | https://openrouter.ai/api/v1 | 否 |
+| `OPENAI_BASE_URL` | API 基础地址 | <https://openrouter.ai/api/v1> | 否 |
 | `AI_MODEL_NAME` | 模型名称 | deepseek/deepseek-v3.2-exp | 否 |
-| `ACCOUNT_DRAWDOWN_WARNING_PERCENT` | 账户回撤警告阈值：发出风险警告提醒(%) | 20 | 否 |
-| `ACCOUNT_DRAWDOWN_NO_NEW_POSITION_PERCENT` | 禁止开仓阈值：停止开新仓位，只允许平仓(%) | 30 | 否 |
-| `ACCOUNT_DRAWDOWN_FORCE_CLOSE_PERCENT` | 强制平仓阈值：自动平掉所有仓位，保护剩余资金(%) | 50 | 否 |
 
 ### 交易策略说明
 
 系统支持5种交易策略，适应不同的市场环境和风险偏好：
 
-| 策略代码 | 策略名称 | 执行周期 | 持仓时长 | 风险等级 | 特点 |
-|---------|---------|---------|---------|---------|------|
-| `ultra-short` | 超短线 | 5分钟 | 30分钟-2小时 | 中高 | 快进快出，2%周期锁利，30分钟盈利平仓 |
-| `swing-trend` | **波段趋势** ⭐ | **20分钟** | **数小时-3天** | **中低** | **中长线波段，捕捉趋势，稳健成长** |
-| `conservative` | 稳健 | 5-15分钟 | 数小时-24小时 | 低 | 低风险低杠杆，保护本金优先 |
-| `balanced` | 平衡 | 5-15分钟 | 数小时-24小时 | 中 | 风险收益平衡（默认策略） |
-| `aggressive` | 激进 | 5-15分钟 | 数小时-24小时 | 高 | 追求高收益，承担高风险 |
+| 策略代码 | 策略名称 | 目标月回报 | 风险等级 | 特点 |
+|---------|---------|----------|---------|------|
+| `ultra-short` | 超短线 | 40%+ | 高 | 快进快出，高频交易，追求短期收益 |
+| `swing-trend` | 波段趋势 | 40%+ | 高 | 中长线波段，捕捉趋势，稳健成长 |
+| `conservative` | 稳健 | 10-20% | 低 | 低风险低杠杆，保护本金优先 |
+| `balanced` | 平衡 ⭐ | 20-40% | 中 | 风险收益平衡（默认推荐） |
+| `aggressive` | 激进 | 40%+ | 高 | 追求高收益，承担高风险 |
 
-**推荐配置 - 波段趋势策略**（适合中长线稳健成长）：
+**推荐配置**（平衡策略）：
+
 ```bash
-TRADING_STRATEGY=swing-trend
-TRADING_INTERVAL_MINUTES=20
-MAX_LEVERAGE=10
-MAX_POSITIONS=3
+TRADING_STRATEGY=balanced
+TRADING_INTERVAL_MINUTES=5
+MAX_LEVERAGE=15
+MAX_POSITIONS=5
 ```
-
-详细策略说明请参考：[交易策略配置指南](./docs/TRADING_STRATEGIES_ZH.md)
 
 ### AI 模型配置
 
 系统支持任何兼容 OpenAI API 的供应商：
 
 **OpenRouter** (推荐，支持多种模型):
+
 ```bash
 OPENAI_BASE_URL=https://openrouter.ai/api/v1
 AI_MODEL_NAME=deepseek/deepseek-v3.2-exp  # 或 x-ai/grok-4-fast, anthropic/claude-4.5-sonnet
 ```
 
 **OpenAI**:
+
 ```bash
 OPENAI_BASE_URL=https://api.openai.com/v1
 AI_MODEL_NAME=gpt-4o  # 或 gpt-4o-mini
 ```
 
 **DeepSeek**:
+
 ```bash
 OPENAI_BASE_URL=https://api.deepseek.com/v1
 AI_MODEL_NAME=deepseek-chat  # 或 deepseek-coder
 ```
 
 支持的模型（通过不同供应商）:
+
 - `deepseek/deepseek-v3.2-exp` - 高性价比，推荐
 - `x-ai/grok-4-fast` - 快速响应
 - `openai/gpt-4o` - 高质量推理
@@ -553,6 +559,7 @@ docker compose down
 **错误**: `database is locked`
 
 **解决方案**:
+
 ```bash
 # 停止所有运行实例
 npm run trading:stop
@@ -572,6 +579,7 @@ npm run trading:start
 **错误**: `GATE_API_KEY and GATE_API_SECRET must be set in environment variables`
 
 **解决方案**:
+
 ```bash
 # 验证 .env 文件
 cat .env | grep GATE_API
@@ -585,6 +593,7 @@ nano .env
 **错误**: `EADDRINUSE: address already in use :::3100`
 
 **解决方案**:
+
 ```bash
 # 方法 1: 使用停止脚本
 npm run trading:stop
@@ -601,6 +610,7 @@ lsof -ti:3100 | xargs kill -9
 **原因**: K线数据格式不匹配
 
 **解决方案**:
+
 ```bash
 # 拉取最新更新
 git pull
@@ -617,6 +627,7 @@ npm run trading:restart
 **错误**: `OpenAI API error` 或连接失败
 
 **解决方案**:
+
 - 验证 `OPENAI_API_KEY` 是否正确
 - 确认 `OPENAI_BASE_URL` 配置正确
   - OpenRouter: `https://openrouter.ai/api/v1`
@@ -673,6 +684,7 @@ SELECT * FROM account_history ORDER BY timestamp DESC LIMIT 10;
 ### WebSocket 支持
 
 实时数据流支持:
+
 - 账户更新
 - 持仓变化
 - 新交易执行
@@ -690,6 +702,7 @@ GATE_USE_TESTNET=true
 ```
 
 测试网优势:
+
 - 使用虚拟资金零金融风险
 - 完整模拟真实交易环境
 - 验证 AI 策略有效性
@@ -698,6 +711,7 @@ GATE_USE_TESTNET=true
 ### 资金管理
 
 切换到正式网时:
+
 - 使用最小资金启动(建议: 100-500 USDT)
 - 监控几天的表现
 - 根据验证结果逐步扩大资金规模
@@ -756,12 +770,14 @@ npm run trading:start
 
 如果您还没有 Gate.io 账户，推荐通过以下邀请方式注册：
 
-- **邀请链接**: [https://www.gatesite.org/signup/VVVEA10LVQ?ref_type=103](https://www.gatesite.org/signup/VVVEA10LVQ?ref_type=103)
-- **邀请码**: `VVVEA10LVQ`
+- **邀请链接**: [https://www.gatesite.org/signup/VQBEAwgL?ref_type=103](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103)
+- **邀请码**: `VQBEAwgL`
 
+```bash
 > 使用邀请码注册，您将获得交易返佣优惠，同时帮助维护这个开源项目的长期运营。这对您和项目都有益，且完全免费无任何额外费用。
 
 > **提示**：测试网和正式网可以用同一个账户，建议您先在测试网充分测试后再进行真实交易。
+```
 
 ### 外部链接
 
@@ -800,6 +816,7 @@ npm run trading:start
 ### 为什么选择 AGPL-3.0?
 
 我们选择 AGPL-3.0 以确保:
+
 - 交易社区从所有改进中受益
 - 金融软件的透明度
 - 防止专有分支
@@ -836,7 +853,7 @@ npm run trading:start
 
 遵循 Conventional Commits 规范:
 
-```
+```bash
 <类型>[可选 范围]: <描述>
 
 [可选 正文]
@@ -845,6 +862,7 @@ npm run trading:start
 ```
 
 类型:
+
 - `feat`: 新功能
 - `fix`: Bug 修复
 - `docs`: 文档变更

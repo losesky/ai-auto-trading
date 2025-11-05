@@ -6,7 +6,7 @@
 
 [![VoltAgent](https://img.shields.io/badge/Framework-VoltAgent-purple.svg)](https://voltagent.dev)
 [![OpenAI Compatible](https://img.shields.io/badge/AI-OpenAI_Compatible-orange.svg)](https://openrouter.ai)
-[![Gate.io](https://img.shields.io/badge/Exchange-Gate.io-00D4AA.svg)](https://www.gatesite.org/signup/VVVEA10LVQ?ref_type=103)
+[![Gate.io](https://img.shields.io/badge/Exchange-Gate.io-00D4AA.svg)](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103)
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Node.js](https://img.shields.io/badge/Runtime-Node.js%2020+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
@@ -35,14 +35,13 @@ ai-auto-trading は、大規模言語モデルの知能と量的取引実践を�
 - [コマンドリファレンス](#コマンドリファレンス)
 - [本番デプロイ](#本番デプロイ)
 - [トラブルシューティング](#トラブルシューティング)
-- [開発ガイド](#開発ガイド)
 - [API ドキュメント](#api-ドキュメント)
 - [貢献](#貢献)
 - [オープンソースライセンス](#オープンソースライセンス)
 
 ## システムアーキテクチャ
 
-```
+```bash
 ┌─────────────────────────────────────────────────────────┐
 │                   Trading Agent (AI)                    │
 │              (DeepSeek V3.2 / Gork4 / Claude)           │
@@ -80,7 +79,7 @@ ai-auto-trading は、大規模言語モデルの知能と量的取引実践を�
 |---------------|------|------|
 | フレームワーク | [VoltAgent](https://voltagent.dev) | AI Agent オーケストレーションと管理 |
 | AI プロバイダー | OpenAI 互換 API | OpenRouter、OpenAI、DeepSeek などの互換プロバイダーをサポート |
-| 取引所 | [Gate.io](https://www.gatesite.org/signup/VVVEA10LVQ?ref_type=103) | 暗号通貨取引(テストネット & 本番ネット) |
+| 取引所 | [Gate.io](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103) | 暗号通貨取引(テストネット & 本番ネット) |
 | データベース | LibSQL (SQLite) | ローカルデータ永続化 |
 | Web サーバー | Hono | 高性能 HTTP フレームワーク |
 | 開発言語 | TypeScript | 型安全な開発 |
@@ -195,13 +194,14 @@ ACCOUNT_DRAWDOWN_FORCE_CLOSE_PERCENT=50      # 強制決済しきい値：すべ
 ```
 
 **API キー取得**:
-- OpenRouter: https://openrouter.ai/keys
-- OpenAI: https://platform.openai.com/api-keys
-- DeepSeek: https://platform.deepseek.com/api_keys
-- Gate.io テストネット: https://www.gate.io/testnet
-- Gate.io 本番ネット: https://www.gatesite.org/signup/VVVEA10LVQ?ref_type=103
 
-> **ヒント**: 上記の招待リンクまたは招待コード `VVVEA10LVQ` を使用して Gate.io アカウントを登録すると、取引手数料のリベートを受けられます。
+- OpenRouter: <https://openrouter.ai/keys>
+- OpenAI: <https://platform.openai.com/api-keys>
+- DeepSeek: <https://platform.deepseek.com/api_keys>
+- Gate.io テストネット: <https://www.gate.io/testnet>
+- Gate.io 本番ネット: <https://www.gatesite.org/signup/VQBEAwgL?ref_type=103>
+
+> **ヒント**: 上記の招待リンクまたは招待コード `VQBEAwgL` を使用して Gate.io アカウントを登録すると、取引手数料のリベートを受けられます。
 
 ### データベース初期化
 
@@ -225,7 +225,7 @@ npm run trading:start
 
 ## プロジェクト構造
 
-```
+```bash
 ai-auto-trading/
 ├── src/
 │   ├── index.ts                      # アプリケーションエントリーポイント
@@ -285,7 +285,7 @@ ai-auto-trading/
 | `GATE_API_SECRET` | Gate.io API シークレット | - | はい |
 | `GATE_USE_TESTNET` | テストネット環境を使用 | true | いいえ |
 | `OPENAI_API_KEY` | OpenAI 互換 API キー | - | はい |
-| `OPENAI_BASE_URL` | API ベース URL | https://openrouter.ai/api/v1 | いいえ |
+| `OPENAI_BASE_URL` | API ベース URL | <https://openrouter.ai/api/v1> | いいえ |
 | `AI_MODEL_NAME` | モデル名 | deepseek/deepseek-v3.2-exp | いいえ |
 | `ACCOUNT_DRAWDOWN_WARNING_PERCENT` | アカウントドローダウン警告しきい値：リスク警告を発する(%) | 20 | いいえ |
 | `ACCOUNT_DRAWDOWN_NO_NEW_POSITION_PERCENT` | 新規注文停止しきい値：新規ポジションの開設を停止、決済のみ許可(%) | 30 | いいえ |
@@ -296,24 +296,28 @@ ai-auto-trading/
 システムは OpenAI API 互換のプロバイダーをサポートします：
 
 **OpenRouter** (推奨、複数のモデルをサポート):
+
 ```bash
 OPENAI_BASE_URL=https://openrouter.ai/api/v1
 AI_MODEL_NAME=deepseek/deepseek-v3.2-exp  # または x-ai/grok-4-fast, anthropic/claude-4.5-sonnet
 ```
 
 **OpenAI**:
+
 ```bash
 OPENAI_BASE_URL=https://api.openai.com/v1
 AI_MODEL_NAME=gpt-4o  # または gpt-4o-mini
 ```
 
 **DeepSeek**:
+
 ```bash
 OPENAI_BASE_URL=https://api.deepseek.com/v1
 AI_MODEL_NAME=deepseek-chat  # または deepseek-coder
 ```
 
 サポートされているモデル（異なるプロバイダー経由）:
+
 - `openai/gpt-4o-mini` - コストパフォーマンスが高い
 - `openai/gpt-4o` - 高品質な推論
 - `anthropic/claude-4.5-sonnet` - 強力な分析能力
@@ -532,6 +536,7 @@ docker compose down
 **エラー**: `database is locked`
 
 **解決策**:
+
 ```bash
 # すべての実行インスタンスを停止
 npm run trading:stop
@@ -551,6 +556,7 @@ npm run trading:start
 **エラー**: `GATE_API_KEY and GATE_API_SECRET must be set in environment variables`
 
 **解決策**:
+
 ```bash
 # .env ファイルを確認
 cat .env | grep GATE_API
@@ -564,6 +570,7 @@ nano .env
 **エラー**: `EADDRINUSE: address already in use :::3100`
 
 **解決策**:
+
 ```bash
 # 方法 1: 停止スクリプトを使用
 npm run trading:stop
@@ -580,6 +587,7 @@ lsof -ti:3100 | xargs kill -9
 **原因**: ローソク足データフォーマットの不一致
 
 **解決策**:
+
 ```bash
 # 最新の更新を取得
 git pull
@@ -596,6 +604,7 @@ npm run trading:restart
 **エラー**: `OpenAI API error` または接続失敗
 
 **解決策**:
+
 - `OPENAI_API_KEY` が正しいことを確認
 - `OPENAI_BASE_URL` が正しく設定されていることを確認
   - OpenRouter: `https://openrouter.ai/api/v1`
@@ -652,6 +661,7 @@ SELECT * FROM account_history ORDER BY timestamp DESC LIMIT 10;
 ### WebSocket サポート
 
 リアルタイムデータストリーミングサポート:
+
 - アカウント更新
 - ポジション変更
 - 新しい取引実行
@@ -669,6 +679,7 @@ GATE_USE_TESTNET=true
 ```
 
 テストネットの利点:
+
 - 仮想資金を使用した金融リスクゼロ
 - 実際の取引環境の完全なシミュレーション
 - AI 戦略の有効性を検証
@@ -677,6 +688,7 @@ GATE_USE_TESTNET=true
 ### 資金管理
 
 本番ネットに切り替える際:
+
 - 最小資金で開始(推奨: 100-500 USDT)
 - 数日間のパフォーマンスを監視
 - 検証結果に基づいて段階的に資金規模を拡大
@@ -735,12 +747,14 @@ npm run trading:start
 
 Gate.io アカウントをお持ちでない場合、以下の招待方式での登録をお勧めします：
 
-- **招待リンク**: [https://www.gatesite.org/signup/VVVEA10LVQ?ref_type=103](https://www.gatesite.org/signup/VVVEA10LVQ?ref_type=103)
-- **招待コード**: `VVVEA10LVQ`
+- **招待リンク**: [https://www.gatesite.org/signup/VQBEAwgL?ref_type=103](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103)
+- **招待コード**: `VQBEAwgL`
 
+```bash
 > 招待コードで登録すると、取引手数料のリベートを受けられ、同時にこのオープンソースプロジェクトの長期運営を支援できます。あなたとプロジェクトの両方にメリットがあり、完全無料で追加費用は一切ありません。
 
 > **ヒント**：テストネットと本番ネットは同じアカウントが使用可能です。実際の取引前にテストネットで十分にテストすることをお勧めします。
+```
 
 ### 外部リンク
 
@@ -779,6 +793,7 @@ Gate.io アカウントをお持ちでない場合、以下の招待方式での
 ### なぜ AGPL-3.0 を選択したのか?
 
 AGPL-3.0 を選択した理由:
+
 - 取引コミュニティがすべての改善から利益を得られるようにするため
 - 金融ソフトウェアの透明性を確保するため
 - プロプライエタリフォークを防ぐため
@@ -815,7 +830,7 @@ AGPL-3.0 を選択した理由:
 
 Conventional Commits 規約に従います:
 
-```
+```bash
 <タイプ>[オプション スコープ]: <説明>
 
 [オプション 本文]
@@ -824,6 +839,7 @@ Conventional Commits 規約に従います:
 ```
 
 タイプ:
+
 - `feat`: 新機能
 - `fix`: バグ修正
 - `docs`: ドキュメント変更
@@ -840,4 +856,3 @@ Conventional Commits 規約に従います:
 [![Star History Chart](https://api.star-history.com/svg?repos=losesky/ai-auto-trading&type=Date)](https://star-history.com/#losesky/ai-auto-trading&Date)
 
 </div>
-

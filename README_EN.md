@@ -6,7 +6,7 @@
 
 [![VoltAgent](https://img.shields.io/badge/Framework-VoltAgent-purple.svg)](https://voltagent.dev)
 [![OpenAI Compatible](https://img.shields.io/badge/AI-OpenAI_Compatible-orange.svg)](https://openrouter.ai)
-[![Gate.io](https://img.shields.io/badge/Exchange-Gate.io-00D4AA.svg)](https://www.gatesite.org/signup/VVVEA10LVQ?ref_type=103)
+[![Gate.io](https://img.shields.io/badge/Exchange-Gate.io-00D4AA.svg)](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103)
 [![TypeScript](https://img.shields.io/badge/Language-TypeScript-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Node.js](https://img.shields.io/badge/Runtime-Node.js%2020+-339933.svg?logo=node.js&logoColor=white)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
@@ -18,9 +18,9 @@
 
 ## Overview
 
-ai-auto-trading is an AI-powered cryptocurrency automated trading system that deeply integrates large language model intelligence with quantitative trading practices. Built on an Agent framework, the system achieves truly intelligent trading by granting AI complete autonomy in market analysis and trading decisions.
+ai-auto-trading is an AI-powered cryptocurrency automated trading system that deeply integrates large language model intelligence with quantitative trading practices. Built on VoltAgent framework, the system achieves truly intelligent trading by granting AI complete autonomy in market analysis and trading decisions.
 
-The system follows a **minimal human intervention** design philosophy, abandoning traditional hardcoded trading rules and allowing AI models to autonomously learn and make decisions based on raw market data. It integrates with Gate.io exchange (supporting both testnet and mainnet), provides complete perpetual contract trading capabilities, covers mainstream cryptocurrencies such as BTC, ETH, SOL, and supports full automation from data collection, intelligent analysis, risk management to trade execution.
+The system follows an **AI autonomous decision-making** philosophy, abandoning traditional hardcoded trading rules and allowing AI models to make decisions based on real-time market data and technical indicators. It integrates with Gate.io exchange (supporting both testnet and mainnet), provides complete perpetual contract trading capabilities, covers mainstream cryptocurrencies such as BTC, ETH, SOL, and supports full automation from data collection, intelligent analysis, risk management to trade execution.
 
 ![ai-auto-trading](./public/image.png)
 
@@ -35,14 +35,13 @@ The system follows a **minimal human intervention** design philosophy, abandonin
 - [Commands Reference](#commands-reference)
 - [Production Deployment](#production-deployment)
 - [Troubleshooting](#troubleshooting)
-- [Development Guide](#development-guide)
 - [API Documentation](#api-documentation)
 - [Contributing](#contributing)
 - [License](#license)
 
 ## Architecture
 
-```
+```bash
 ┌─────────────────────────────────────────────────────────┐
 │                   Trading Agent (AI)                    │
 │              (DeepSeek V3.2 / Gork4 / Claude)           │
@@ -80,7 +79,7 @@ The system follows a **minimal human intervention** design philosophy, abandonin
 |-----------|-----------|---------|
 | Framework | [VoltAgent](https://voltagent.dev) | AI Agent orchestration and management |
 | AI Provider | OpenAI Compatible API | Supports OpenRouter, OpenAI, DeepSeek and other compatible providers |
-| Exchange | [Gate.io](https://www.gatesite.org/signup/VVVEA10LVQ?ref_type=103) | Cryptocurrency trading (testnet & mainnet) |
+| Exchange | [Gate.io](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103) | Cryptocurrency trading (testnet & mainnet) |
 | Database | LibSQL (SQLite) | Local data persistence |
 | Web Server | Hono | High-performance HTTP framework |
 | Language | TypeScript | Type-safe development |
@@ -88,57 +87,51 @@ The system follows a **minimal human intervention** design philosophy, abandonin
 
 ### Core Design Philosophy
 
-- **Data-Driven**: Provides raw market data to AI without preprocessing or subjective judgments
-- **Autonomous Decision-Making**: AI has complete authority in analysis and trading decisions, without hardcoded strategy constraints
-- **Multi-Dimensional Analysis**: Aggregates multi-timeframe data (5m, 15m, 1h, 4h) for comprehensive market view
-- **Transparent and Traceable**: Records every decision process for backtesting analysis and strategy optimization
-- **Continuous Learning**: System automatically accumulates trading experience and continuously optimizes decision models
+- **AI Autonomous Decision-Making**: AI makes completely autonomous decisions based on real-time market data and technical indicators
+- **Multi-Strategy Support**: 5 trading strategies (ultra-short, swing-trend, conservative, balanced, aggressive)
+- **Multi-Timeframe Analysis**: Aggregates 5m, 15m, 1h, 4h data for comprehensive market view
+- **Intelligent Risk Control**: Stop-loss, take-profit, trailing stops, partial profit-taking, peak drawdown protection
+- **Transparent and Traceable**: Complete recording of every decision for backtesting and strategy optimization
 
 ## Key Features
 
-### AI-Powered Decision Making
+### 🤖 AI-Powered Decision Making
 
-- **Model Support**: DeepSeek V3.2, Grok4, Claude 4.5, Gemini Pro 2.5
-- **Data Inputs**: Real-time prices, volume, candlestick patterns, technical indicators
-- **Autonomous Analysis**: No pre-configured trading signals
-- **Multi-Timeframe**: Aggregates data across multiple time windows
-- **Risk Management**: AI-controlled position sizing and leverage management
+- **Multi-Model Support**: DeepSeek V3.2, Grok 4, Claude 4.5, Gemini 2.5, etc.
+- **Autonomous Analysis**: Makes decisions based on real-time market data and technical indicators
+- **Multi-Timeframe**: 5-minute, 15-minute, 1-hour, 4-hour multi-dimensional analysis
+- **5 Trading Strategies**: Ultra-short, swing-trend, conservative, balanced, aggressive
 
-### Complete Trading Functionality
+### 💹 Complete Trading Functionality
 
-- **Supported Assets**: BTC, ETH, SOL, BNB, XRP, DOGE, GT, TRUMP, ADA, WLFI
+- **Supported Cryptocurrencies**: BTC, ETH, SOL, BNB, XRP, DOGE, BCH, HYPE, SUI, ADA, AVAX, LTC, LINK, etc.
 - **Contract Type**: USDT-settled perpetual futures
-- **Leverage Range**: 1x to 10x (configurable)
-- **Order Types**: Market orders, stop-loss, take-profit
-- **Position Direction**: Long and short positions
-- **Real-time Execution**: Sub-second order placement via Gate.io API
+- **Leverage Range**: 1-15x (configurable)
+- **Risk Management**: Stop-loss, take-profit, trailing stops, partial profit-taking, peak drawdown protection
 
-### Real-Time Monitoring Interface
+### 📊 Real-Time Monitoring
 
-- **Web Dashboard**: Accessible at `http://localhost:3100`
-- **Account Metrics**: Balance, equity, unrealized PnL
-- **Position Overview**: Current holdings, entry prices, leverage
-- **Trade History**: Complete transaction log with timestamps
-- **AI Decision Log**: Transparency into model reasoning
-- **Technical Indicators**: Visualization of market data and signals
+- **Web Dashboard**: <http://localhost:3100> for real-time monitoring
+- **Account Metrics**: Balance, return rate, Sharpe ratio, peak assets
+- **Position Management**: Real-time P&L, holding duration, leverage, peak drawdown
+- **AI Decision Log**: Complete recording of each decision process
 
-### Risk Management System
+### Intelligent Risk Management
 
-- **Automated Stop-Loss**: Configurable percentage-based exits
-- **Take-Profit Orders**: Automatic profit realization
-- **Position Limits**: Maximum exposure per asset
-- **Leverage Control**: Configurable maximum leverage
-- **Trade Throttling**: Minimum interval between trades
-- **Audit Trail**: Complete database logging of all actions
+- **Stop-Loss Protection**: Forced liquidation at -30% loss
+- **Time Limits**: Forced closure after 36 hours
+- **Trailing Stops**: Automatically raise stop-loss after profit milestones
+- **Partial Profit-Taking**: Lock profits in stages to reduce drawdown risk
+- **Peak Drawdown Protection**: Auto-close when drawdown exceeds threshold
+- **Account Stop-Loss/Take-Profit**: Global account-level stop and profit lines
 
 ### Production-Ready Deployment
 
 - **Testnet Support**: Risk-free strategy validation
-- **Process Management**: PM2 integration for reliability
-- **Containerization**: Docker support for isolated deployment
-- **Auto-Recovery**: Automatic restart on failures
-- **Logging**: Comprehensive error and info logging
-- **Health Monitoring**: Built-in health check endpoints
+- **Process Management**: PM2 daemon with auto-restart
+- **Containerized Deployment**: Docker/Docker Compose support
+- **Complete Logging**: Detailed trade and error logs
+- **Data Persistence**: SQLite local database
 
 ## Quick Start
 
@@ -168,12 +161,16 @@ Create `.env` file in project root:
 # Server Configuration
 PORT=3100
 
-# Trading Parameters
-TRADING_INTERVAL_MINUTES=5      # Trading loop interval
-MAX_LEVERAGE=10                 # Maximum leverage multiplier
-MAX_POSITIONS=5                 # Maximum number of positions
-MAX_HOLDING_HOURS=36            # Maximum holding time (hours)
-INITIAL_BALANCE=2000            # Initial capital in USDT
+# Trading Configuration
+TRADING_INTERVAL_MINUTES=5                   # Trading cycle (minutes)
+TRADING_STRATEGY=balanced                    # Strategy: ultra-short/swing-trend/conservative/balanced/aggressive
+TRADING_SYMBOLS=BTC,ETH,SOL,BNB,XRP,DOGE,BCH # Trading symbols (comma-separated)
+MAX_LEVERAGE=15                              # Maximum leverage
+MAX_POSITIONS=5                              # Maximum positions
+MAX_HOLDING_HOURS=36                         # Maximum holding time (hours)
+INITIAL_BALANCE=1000                         # Initial capital (USDT)
+ACCOUNT_STOP_LOSS_USDT=50                    # Account stop-loss line
+ACCOUNT_TAKE_PROFIT_USDT=20000               # Account take-profit line
 
 # Database
 DATABASE_URL=file:./.voltagent/trading.db
@@ -190,13 +187,14 @@ AI_MODEL_NAME=deepseek/deepseek-v3.2-exp      # Model name
 ```
 
 **API Key Acquisition**:
-- OpenRouter: https://openrouter.ai/keys
-- OpenAI: https://platform.openai.com/api-keys
-- DeepSeek: https://platform.deepseek.com/api_keys
-- Gate.io Testnet: https://www.gate.io/testnet
-- Gate.io Mainnet: https://www.gatesite.org/signup/VVVEA10LVQ?ref_type=103
 
-> **Tip**: Register a Gate.io account using the above referral link or invitation code `VVVEA10LVQ` to receive commission rebates on your trades.
+- OpenRouter: <https://openrouter.ai/keys>
+- OpenAI: <https://platform.openai.com/api-keys>
+- DeepSeek: <https://platform.deepseek.com/api_keys>
+- Gate.io Testnet: <https://www.gate.io/testnet>
+- Gate.io Mainnet: <https://www.gatesite.org/signup/VQBEAwgL?ref_type=103>
+
+> **Tip**: Use invitation code `VQBEAwgL` to get trading fee rebates.
 
 ### Database Initialization
 
@@ -220,7 +218,7 @@ Navigate to `http://localhost:3100` in your browser.
 
 ## Project Structure
 
-```
+```bash
 ai-auto-trading/
 ├── src/
 │   ├── index.ts                      # Application entry point
@@ -263,8 +261,6 @@ ai-auto-trading/
 └── Dockerfile                        # Container build definition
 ```
 
-## Configuration
-
 ### Environment Variables
 
 | Variable | Description | Default | Required |
@@ -280,7 +276,7 @@ ai-auto-trading/
 | `GATE_API_SECRET` | Gate.io API secret | - | Yes |
 | `GATE_USE_TESTNET` | Use testnet environment | true | No |
 | `OPENAI_API_KEY` | OpenAI compatible API key | - | Yes |
-| `OPENAI_BASE_URL` | API base URL | https://openrouter.ai/api/v1 | No |
+| `OPENAI_BASE_URL` | API base URL | <https://openrouter.ai/api/v1> | No |
 | `AI_MODEL_NAME` | Model name | deepseek/deepseek-v3.2-exp | No |
 | `ACCOUNT_DRAWDOWN_WARNING_PERCENT` | Account drawdown warning threshold: triggers risk alert (%) | 20 | No |
 | `ACCOUNT_DRAWDOWN_NO_NEW_POSITION_PERCENT` | Drawdown threshold to stop opening new positions, only allow closing (%) | 30 | No |
@@ -291,24 +287,28 @@ ai-auto-trading/
 The system supports any OpenAI API compatible provider:
 
 **OpenRouter** (Recommended, supports multiple models):
+
 ```bash
 OPENAI_BASE_URL=https://openrouter.ai/api/v1
 AI_MODEL_NAME=deepseek/deepseek-v3.2-exp  # or x-ai/grok-4-fast, anthropic/claude-4.5-sonnet
 ```
 
 **OpenAI**:
+
 ```bash
 OPENAI_BASE_URL=https://api.openai.com/v1
 AI_MODEL_NAME=gpt-4o  # or gpt-4o-mini
 ```
 
 **DeepSeek**:
+
 ```bash
 OPENAI_BASE_URL=https://api.deepseek.com/v1
 AI_MODEL_NAME=deepseek-chat  # or deepseek-coder
 ```
 
 Supported models (via different providers):
+
 - `openai/gpt-4o-mini` - Cost-effective option
 - `openai/gpt-4o` - High-quality reasoning
 - `anthropic/claude-4.5-sonnet` - Strong analytical capabilities
@@ -526,6 +526,7 @@ services:
 **Error**: `database is locked`
 
 **Solution**:
+
 ```bash
 # Stop all running instances
 npm run trading:stop
@@ -545,6 +546,7 @@ npm run trading:start
 **Error**: `GATE_API_KEY and GATE_API_SECRET must be set in environment variables`
 
 **Solution**:
+
 ```bash
 # Verify .env file
 cat .env | grep GATE_API
@@ -558,6 +560,7 @@ nano .env
 **Error**: `EADDRINUSE: address already in use :::3141`
 
 **Solution**:
+
 ```bash
 # Method 1: Use stop script
 npm run trading:stop
@@ -574,6 +577,7 @@ lsof -ti:3141 | xargs kill -9
 **Cause**: Candlestick data format mismatch
 
 **Solution**:
+
 ```bash
 # Pull latest updates
 git pull
@@ -590,6 +594,7 @@ npm run trading:restart
 **Error**: `OpenAI API error` or connection failure
 
 **Solution**:
+
 - Verify `OPENAI_API_KEY` is correct
 - Confirm `OPENAI_BASE_URL` is configured correctly
   - OpenRouter: `https://openrouter.ai/api/v1`
@@ -646,6 +651,7 @@ SELECT * FROM account_history ORDER BY timestamp DESC LIMIT 10;
 ### WebSocket Support
 
 Real-time data streaming available for:
+
 - Account updates
 - Position changes
 - New trade executions
@@ -663,6 +669,7 @@ GATE_USE_TESTNET=true
 ```
 
 Testnet advantages:
+
 - Zero financial risk with virtual funds
 - Complete simulation of real trading environment
 - Validate AI strategy effectiveness
@@ -671,6 +678,7 @@ Testnet advantages:
 ### Capital Management
 
 When transitioning to mainnet:
+
 - Start with minimal capital (recommended: 100-500 USDT)
 - Monitor performance for several days
 - Gradually scale capital based on proven results
@@ -729,12 +737,14 @@ npm run trading:start
 
 If you don't have a Gate.io account yet, we recommend registering through this referral:
 
-- **Referral Link**: [https://www.gatesite.org/signup/VVVEA10LVQ?ref_type=103](https://www.gatesite.org/signup/VVVEA10LVQ?ref_type=103)
-- **Invitation Code**: `VVVEA10LVQ`
+- **Referral Link**: [https://www.gatesite.org/signup/VQBEAwgL?ref_type=103](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103)
+- **Invitation Code**: `VQBEAwgL`
 
+```bash
 > By registering with the referral code, you'll receive trading commission rebates while helping maintain this open-source project's long-term operation. It benefits both you and the project, completely free with no extra costs.
 
 > **Tip**: Testnet and mainnet can use the same account. We recommend thorough testing on testnet before real trading.
+```
 
 ### External Links
 
@@ -773,6 +783,7 @@ See the [LICENSE](./LICENSE) file for complete terms.
 ### Why AGPL-3.0?
 
 We chose AGPL-3.0 to ensure:
+
 - The trading community benefits from all improvements
 - Transparency in financial software
 - Prevention of proprietary forks
@@ -809,7 +820,7 @@ Contributions are welcome! Please follow these guidelines:
 
 Follow Conventional Commits specification:
 
-```
+```bash
 <type>[optional scope]: <description>
 
 [optional body]
@@ -818,6 +829,7 @@ Follow Conventional Commits specification:
 ```
 
 Types:
+
 - `feat`: New feature
 - `fix`: Bug fix
 - `docs`: Documentation changes
