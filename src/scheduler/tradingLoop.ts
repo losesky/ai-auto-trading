@@ -27,6 +27,7 @@ import { createGateClient } from "../services/gateClient";
 import { getChinaTimeISO } from "../utils/timeUtils";
 import { RISK_PARAMS } from "../config/riskParams";
 import { getQuantoMultiplier } from "../utils/contractUtils";
+import { formatPrice, formatUSDT, formatPercent, formatATR, getDecimalPlacesBySymbol } from "../utils/priceFormatter";
 
 const logger = createPinoLogger({
   name: "trading-loop",
@@ -1003,7 +1004,7 @@ async function fixHistoricalPnlRecords() {
       // 如果差异超过0.5 USDT，就需要修复
       if (pnlDiff > 0.5 || feeDiff > 0.1) {
         logger.warn(`修复交易记录 ID=${id} (${symbol} ${side})`);
-        logger.warn(`  盈亏: ${recordedPnl.toFixed(2)} → ${correctPnl.toFixed(2)} USDT (差异: ${pnlDiff.toFixed(2)})`);
+        logger.warn(`  盈亏: ${formatUSDT(recordedPnl)} → ${formatUSDT(correctPnl)} USDT (差异: ${formatUSDT(pnlDiff)})`);
         
         // 更新数据库
         await dbClient.execute({
@@ -1073,15 +1074,15 @@ async function checkAccountThresholds(accountInfo: any): Promise<boolean> {
   
   // 检查止损线
   if (totalBalance <= accountRiskConfig.stopLossUsdt) {
-    logger.error(`触发止损线！余额: ${totalBalance.toFixed(2)} USDT <= ${accountRiskConfig.stopLossUsdt} USDT`);
-    await closeAllPositions(`账户余额触发止损线 (${totalBalance.toFixed(2)} USDT)`);
+    logger.error(`触发止损线！余额: ${formatUSDT(totalBalance)} USDT <= ${accountRiskConfig.stopLossUsdt} USDT`);
+    await closeAllPositions(`账户余额触发止损线 (${formatUSDT(totalBalance)} USDT)`);
     return true;
   }
   
   // 检查止盈线
   if (totalBalance >= accountRiskConfig.takeProfitUsdt) {
-    logger.warn(`触发止盈线！余额: ${totalBalance.toFixed(2)} USDT >= ${accountRiskConfig.takeProfitUsdt} USDT`);
-    await closeAllPositions(`账户余额触发止盈线 (${totalBalance.toFixed(2)} USDT)`);
+    logger.warn(`触发止盈线！余额: ${formatUSDT(totalBalance)} USDT >= ${accountRiskConfig.takeProfitUsdt} USDT`);
+    await closeAllPositions(`账户余额触发止盈线 (${formatUSDT(totalBalance)} USDT)`);
     return true;
   }
   
@@ -1205,7 +1206,7 @@ async function executeTradingDecision() {
               sql: "UPDATE positions SET peak_pnl_percent = ? WHERE symbol = ?",
               args: [peakPnlPercent, symbol],
             });
-            logger.info(`${symbol} 峰值盈利更新: ${peakPnlPercent.toFixed(2)}%`);
+            logger.info(`${symbol} 峰值盈利更新: ${formatPercent(peakPnlPercent)}%`);
           }
         }
       } catch (error: any) {
@@ -1222,7 +1223,7 @@ async function executeTradingDecision() {
       
       if (holdingHours >= 36) {
         shouldClose = true;
-        closeReason = `持仓时间已达 ${holdingHours.toFixed(1)} 小时，超过36小时限制`;
+        closeReason = `持仓时间已达 ${formatPercent(holdingHours, 1)} 小时，超过36小时限制`;
       }
       
       // b) 极端止损保护（防止爆仓，硬编码底线）
@@ -1230,11 +1231,11 @@ async function executeTradingDecision() {
       // 常规止损由AI决策，这里只是最后的安全网
       const EXTREME_STOP_LOSS = -30; // 单笔亏损 -30% 强制平仓（专业风控底线）
       
-      logger.info(`${symbol} 极端止损检查: 当前盈亏=${pnlPercent.toFixed(2)}%, 极端止损线=${EXTREME_STOP_LOSS}%`);
+      logger.info(`${symbol} 极端止损检查: 当前盈亏=${formatPercent(pnlPercent)}%, 极端止损线=${EXTREME_STOP_LOSS}%`);
       
       if (pnlPercent <= EXTREME_STOP_LOSS) {
         shouldClose = true;
-        closeReason = `触发极端止损保护 (${pnlPercent.toFixed(2)}% ≤ ${EXTREME_STOP_LOSS}%，防止爆仓)`;
+        closeReason = `触发极端止损保护 (${formatPercent(pnlPercent)}% ≤ ${EXTREME_STOP_LOSS}%，防止爆仓)`;
         logger.error(`${closeReason}`);
       }
       
@@ -1242,7 +1243,7 @@ async function executeTradingDecision() {
       // AI负责：止损、移动止盈、分批止盈、时间止盈、峰值回撤等策略性决策
       // 系统只保留底线安全保护（极端止损、36小时强制平仓、账户回撤保护）
       
-      logger.info(`${symbol} 持仓监控: 盈亏=${pnlPercent.toFixed(2)}%, 持仓时间=${holdingHours.toFixed(1)}h, 峰值盈利=${peakPnlPercent.toFixed(2)}%, 杠杆=${leverage}x`);
+      logger.info(`${symbol} 持仓监控: 盈亏=${formatPercent(pnlPercent)}%, 持仓时间=${formatPercent(holdingHours, 1)}h, 峰值盈利=${formatPercent(peakPnlPercent)}%, 杠杆=${leverage}x`);
       
       // 执行强制平仓
       if (shouldClose) {
@@ -1298,7 +1299,7 @@ async function executeTradingDecision() {
                 // 净盈亏
                 pnl = grossPnl - totalFee;
                 
-                logger.info(`平仓成交: 价格=${actualExitPrice}, 数量=${actualQuantity}, 盈亏=${pnl.toFixed(2)} USDT`);
+                logger.info(`平仓成交: 价格=${formatPrice(actualExitPrice)}, 数量=${actualQuantity}, 盈亏=${formatUSDT(pnl)} USDT`);
                 break;
               }
             } catch (statusError: any) {
@@ -1320,19 +1321,19 @@ async function executeTradingDecision() {
             // 检测盈亏是否被错误地设置为名义价值
             if (Math.abs(pnl - notionalValue) < Math.abs(pnl - expectedPnl)) {
               logger.error(`【强制平仓】检测到盈亏计算异常！`);
-              logger.error(`  当前pnl: ${pnl.toFixed(2)} USDT 接近名义价值 ${notionalValue.toFixed(2)} USDT`);
-              logger.error(`  预期pnl: ${expectedPnl.toFixed(2)} USDT`);
+              logger.error(`  当前pnl: ${formatUSDT(pnl)} USDT 接近名义价值 ${formatUSDT(notionalValue)} USDT`);
+              logger.error(`  预期pnl: ${formatUSDT(expectedPnl)} USDT`);
               logger.error(`  开仓价: ${pos.entry_price}, 平仓价: ${finalPrice}, 数量: ${actualQuantity}, 合约乘数: ${quantoMultiplier}`);
               
               // 强制修正为正确值
               pnl = expectedPnl;
-              logger.warn(`  已自动修正pnl为: ${pnl.toFixed(2)} USDT`);
+              logger.warn(`  已自动修正pnl为: ${formatUSDT(pnl)} USDT`);
             }
             
             // 详细日志
             logger.info(`【强制平仓盈亏详情】${symbol} ${side}`);
             logger.info(`  原因: ${closeReason}`);
-            logger.info(`  开仓价: ${pos.entry_price.toFixed(4)}, 平仓价: ${finalPrice.toFixed(4)}, 数量: ${actualQuantity}张`);
+            logger.info(`  开仓价: ${formatPrice(pos.entry_price)}, 平仓价: ${formatPrice(finalPrice)}, 数量: ${actualQuantity}张`);
             logger.info(`  净盈亏: ${pnl.toFixed(2)} USDT, 手续费: ${totalFee.toFixed(4)} USDT`);
             
             await dbClient.execute({

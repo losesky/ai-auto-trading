@@ -114,12 +114,12 @@ async function loadAccountData() {
 
         
         // 更新可用余额
-        updateValueWithAnimation('availableBalance', data.availableBalance.toFixed(2));
+        updateValueWithAnimation('availableBalance', formatUSDT(data.availableBalance));
         
         // 更新未实现盈亏（带符号和颜色）
         // 这个值会根据持仓的实时价格变化而实时更新
         const unrealisedPnlEl = document.getElementById('unrealisedPnl');
-        const pnlValue = (data.unrealisedPnl >= 0 ? '+' : '') + data.unrealisedPnl.toFixed(2);
+        const pnlValue = (data.unrealisedPnl >= 0 ? '+' : '') + formatUSDT(data.unrealisedPnl);
         updateValueWithAnimation('unrealisedPnl', pnlValue);
         unrealisedPnlEl.className = 'value ' + (data.unrealisedPnl >= 0 ? 'positive' : 'negative');
         
@@ -127,14 +127,14 @@ async function loadAccountData() {
         // API 返回的 totalBalance 不包含未实现盈亏
         // 显示的总资产需要加上未实现盈亏，以便实时反映持仓盈亏
         const totalBalanceWithPnl = data.totalBalance + data.unrealisedPnl;
-        updateValueWithAnimation('totalBalance', totalBalanceWithPnl.toFixed(2));
+        updateValueWithAnimation('totalBalance', formatUSDT(totalBalanceWithPnl));
 
         // 更新收益率（带符号和颜色）
         // 收益率 = (总资产 - 初始资金) / 初始资金 * 100
         // 使用包含未实现盈亏的总资产计算，会实时变化
         const returnPercentEl = document.getElementById('returnPercent');
         const returnPercent = ((totalBalanceWithPnl - data.initialBalance) / data.initialBalance) * 100;
-        const returnValue = (returnPercent >= 0 ? '+' : '') + returnPercent.toFixed(2) + '%';
+        const returnValue = (returnPercent >= 0 ? '+' : '') + formatPercent(returnPercent) + '%';
         updateValueWithAnimation('returnPercent', returnValue);
         returnPercentEl.className = 'value ' + (returnPercent >= 0 ? 'positive' : 'negative');
         
@@ -196,15 +196,15 @@ async function loadPositionsData() {
                     </div>
                     <div class="position-field">
                         <div class="label">开仓价</div>
-                        <div class="value">${pos.entryPrice.toFixed(4)}</div>
+                        <div class="value">${formatPriceBySymbol(pos.symbol, pos.entryPrice)}</div>
                     </div>
                     <div class="position-field">
                         <div class="label">开仓价值</div>
-                        <div class="value">${pos.openValue.toFixed(2)} USDT</div>
+                        <div class="value">${formatUSDT(pos.openValue)} USDT</div>
                     </div>
                     <div class="position-field">
                         <div class="label">当前价</div>
-                        <div class="value">${pos.currentPrice.toFixed(4)}</div>
+                        <div class="value">${formatPriceBySymbol(pos.symbol, pos.currentPrice)}</div>
                     </div>
                     <div class="position-field">
                         <div class="label">杠杆</div>
@@ -213,23 +213,23 @@ async function loadPositionsData() {
                     <div class="position-field">
                         <div class="label">盈亏</div>
                         <div class="value ${pos.unrealizedPnl >= 0 ? 'positive' : 'negative'}">
-                            ${(pos.unrealizedPnl >= 0 ? '+' : '')}${pos.unrealizedPnl.toFixed(2)}
+                            ${(pos.unrealizedPnl >= 0 ? '+' : '')}${formatUSDT(pos.unrealizedPnl)}
                         </div>
                     </div>
                     <div class="position-field">
                         <div class="label">强平价</div>
-                        <div class="value">${pos.liquidationPrice.toFixed(4)}</div>
+                        <div class="value">${formatPriceBySymbol(pos.symbol, pos.liquidationPrice)}</div>
                     </div>
                     ${pos.stopLoss ? `
                     <div class="position-field">
                         <div class="label">止损</div>
-                        <div class="value">${pos.stopLoss.toFixed(4)}</div>
+                        <div class="value">${formatPriceBySymbol(pos.symbol, pos.stopLoss)}</div>
                     </div>
                     ` : ''}
                     ${pos.profitTarget ? `
                     <div class="position-field">
                         <div class="label">止盈</div>
-                        <div class="value">${pos.profitTarget.toFixed(4)}</div>
+                        <div class="value">${formatPriceBySymbol(pos.symbol, pos.profitTarget)}</div>
                     </div>
                     ` : ''}
                 </div>
@@ -324,7 +324,7 @@ async function loadTradesData() {
             const pnlHtml = trade.type === 'close' && trade.pnl !== null && trade.pnl !== undefined
                 ? `<div class="trade-field">
                     <span class="label">盈亏</span>
-                    <span class="value ${trade.pnl >= 0 ? 'profit' : 'loss'}">${trade.pnl >= 0 ? '+' : ''}${trade.pnl.toFixed(2)} USDT</span>
+                    <span class="value ${trade.pnl >= 0 ? 'profit' : 'loss'}">${trade.pnl >= 0 ? '+' : ''}${formatUSDT(trade.pnl)} USDT</span>
                    </div>`
                 : '';
             
@@ -345,11 +345,11 @@ async function loadTradesData() {
                         </div>
                         <div class="trade-field">
                             <span class="label">数量</span>
-                            <span class="value">${trade.quantity.toFixed(4)}</span>
+                            <span class="value">${formatUSDT(trade.quantity, 4)}</span>
                         </div>
                         <div class="trade-field">
                             <span class="label">价格</span>
-                            <span class="value">${trade.price.toFixed(4)}</span>
+                            <span class="value">${formatPriceBySymbol(trade.symbol, trade.price)}</span>
                         </div>
                         <div class="trade-field">
                             <span class="label">杠杆</span>
@@ -357,7 +357,7 @@ async function loadTradesData() {
                         </div>
                         <div class="trade-field">
                             <span class="label">手续费</span>
-                            <span class="value">${trade.fee.toFixed(4)}</span>
+                            <span class="value">${formatUSDT(trade.fee, 4)}</span>
                         </div>
                         ${pnlHtml}
                     </div>

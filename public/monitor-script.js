@@ -93,7 +93,7 @@ class TradingMonitor {
             // 更新总资产
             const accountValueEl = document.getElementById('account-value');
             if (accountValueEl) {
-                accountValueEl.textContent = totalBalanceWithPnl.toFixed(2);
+                accountValueEl.textContent = formatUSDT(totalBalanceWithPnl);
             }
 
             // 计算总盈亏和盈亏比例
@@ -104,27 +104,27 @@ class TradingMonitor {
             // 更新总盈亏
             const balancePnlEl = document.getElementById('balance-pnl');
             if (balancePnlEl) {
-                balancePnlEl.textContent = `${isProfit ? '+' : ''}${totalPnl.toFixed(2)}`;
+                balancePnlEl.textContent = `${isProfit ? '+' : ''}${formatUSDT(totalPnl)}`;
                 balancePnlEl.className = 'balance-pnl ' + (isProfit ? 'positive' : 'negative');
             }
             
             // 更新盈亏比例
             const balancePercentEl = document.getElementById('balance-percent');
             if (balancePercentEl) {
-                balancePercentEl.textContent = `(${isProfit ? '+' : ''}${pnlPercent.toFixed(2)}%)`;
+                balancePercentEl.textContent = `(${isProfit ? '+' : ''}${formatPercent(pnlPercent)}%)`;
                 balancePercentEl.className = 'balance-percent ' + (isProfit ? 'positive' : 'negative');
             }
 
             // 更新可用余额
             const availableBalanceEl = document.getElementById('available-balance');
             if (availableBalanceEl) {
-                availableBalanceEl.textContent = `${data.availableBalance.toFixed(2)} USDT`;
+                availableBalanceEl.textContent = `${formatUSDT(data.availableBalance)} USDT`;
             }
 
             // 更新未实现盈亏（带符号和颜色）
             const unrealisedPnlEl = document.getElementById('unrealised-pnl');
             if (unrealisedPnlEl) {
-                const pnlValue = (data.unrealisedPnl >= 0 ? '+' : '') + data.unrealisedPnl.toFixed(2);
+                const pnlValue = (data.unrealisedPnl >= 0 ? '+' : '') + formatUSDT(data.unrealisedPnl);
                 unrealisedPnlEl.textContent = `${pnlValue} USDT`;
                 unrealisedPnlEl.className = 'metric-value ' + (data.unrealisedPnl >= 0 ? 'positive' : 'negative');
             }
@@ -137,7 +137,7 @@ class TradingMonitor {
             
             const marginRatioEl = document.getElementById('margin-ratio');
             if (marginRatioEl) {
-                marginRatioEl.textContent = `${marginRatio.toFixed(2)}%`;
+                marginRatioEl.textContent = `${formatPercent(marginRatio)}%`;
                 // 根据保证金比率设置颜色
                 if (marginRatio < 50) {
                     marginRatioEl.className = 'metric-value';
@@ -188,27 +188,10 @@ class TradingMonitor {
             });
             this.updateTickerPrices();
 
-            // 价格显示 - 智能精度（与交易历史统一）
-            const formatPrice = (price) => {
-                if (price >= 1000) {
-                    return price.toFixed(2);
-                } else if (price >= 1) {
-                    return price.toFixed(2);
-                } else if (price >= 0.1) {
-                    return price.toFixed(3);
-                } else if (price >= 0.01) {
-                    return price.toFixed(4);
-                } else if (price >= 0.001) {
-                    return price.toFixed(5);
-                } else {
-                    return price.toFixed(6);
-                }
-            };
-
             // 更新持仓表格
             if (positionsBody) {
                 positionsBody.innerHTML = data.positions.map(pos => {
-                    const profitPercent = ((pos.unrealizedPnl / pos.openValue) * 100).toFixed(2);
+                    const profitPercent = ((pos.unrealizedPnl / pos.openValue) * 100);
                     
                     // 方向显示 - 与交易历史统一样式
                     const sideText = pos.side === 'long' ? 'LONG' : 'SHORT';
@@ -217,19 +200,19 @@ class TradingMonitor {
                     
                     // 盈亏显示
                     const pnlClass = pos.unrealizedPnl >= 0 ? 'profit' : 'loss';
-                    const pnlText = pos.unrealizedPnl >= 0 ? `+$${pos.unrealizedPnl.toFixed(2)}` : `-$${Math.abs(pos.unrealizedPnl).toFixed(2)}`;
+                    const pnlText = pos.unrealizedPnl >= 0 ? `+$${formatUSDT(pos.unrealizedPnl)}` : `-$${formatUSDT(Math.abs(pos.unrealizedPnl))}`;
                     
                     return `
                         <tr>
                             <td><span class="symbol">${pos.symbol}</span></td>
                             <td><span class="side ${sideClass}">${sideText}</span></td>
                             <td>${leverage}x</td>
-                            <td>$${formatPrice(pos.entryPrice)}</td>
-                            <td>$${pos.openValue.toFixed(2)}</td>
-                            <td>$${formatPrice(pos.currentPrice)}</td>
+                            <td>$${formatPriceBySymbol(pos.symbol, pos.entryPrice)}</td>
+                            <td>$${formatUSDT(pos.openValue)}</td>
+                            <td>$${formatPriceBySymbol(pos.symbol, pos.currentPrice)}</td>
                             <td><span class="${pnlClass}">${pnlText}</span></td>
                             <td class="${pnlClass}">
-                                ${pos.unrealizedPnl >= 0 ? '+' : ''}${profitPercent}%
+                                ${pos.unrealizedPnl >= 0 ? '+' : ''}${formatPercent(profitPercent)}%
                             </td>
                         </tr>
                     `;
@@ -239,7 +222,7 @@ class TradingMonitor {
             // 更新持仓小卡片
             if (positionsCardsContainer) {
                 positionsCardsContainer.innerHTML = data.positions.map(pos => {
-                    const profitPercent = ((pos.unrealizedPnl / pos.openValue) * 100).toFixed(2);
+                    const profitPercent = ((pos.unrealizedPnl / pos.openValue) * 100);
                     const sideClass = pos.side;
                     const sideText = pos.side === 'long' ? '多' : '空';
                     const pnlClass = pos.unrealizedPnl >= 0 ? 'positive' : 'negative';
@@ -249,7 +232,7 @@ class TradingMonitor {
                         <div class="position-card ${sideClass} ${pnlClass}">
                             <span class="position-card-symbol">${pos.symbol} ${leverage}x</span>
                             <span class="position-card-pnl ${pnlClass}">
-                                ${sideText} ${pos.unrealizedPnl >= 0 ? '+' : ''}$${pos.unrealizedPnl.toFixed(2)} (${pos.unrealizedPnl >= 0 ? '+' : ''}${profitPercent}%)
+                                ${sideText} ${pos.unrealizedPnl >= 0 ? '+' : ''}$${formatUSDT(pos.unrealizedPnl)} (${pos.unrealizedPnl >= 0 ? '+' : ''}${formatPercent(profitPercent)}%)
                             </span>
                         </div>
                     `;
@@ -299,46 +282,13 @@ class TradingMonitor {
                     const sideText = trade.side === 'long' ? 'LONG' : 'SHORT';
                     const sideClass = trade.side === 'long' ? 'long' : 'short';
                     
-                    // 价格显示 - 智能精度（根据价格大小动态调整小数位）
-                    const formatPrice = (price) => {
-                        if (price >= 1000) {
-                            // 大于等于1000（如BTC），显示2位小数
-                            return price.toFixed(2);
-                        } else if (price >= 1) {
-                            // 1到1000之间（如ETH、BNB），显示2位小数
-                            return price.toFixed(2);
-                        } else if (price >= 0.1) {
-                            // 0.1到1之间，显示4位小数
-                            return price.toFixed(4);
-                        } else if (price >= 0.01) {
-                            // 0.01到0.1之间，显示4位小数
-                            return price.toFixed(4);
-                        } else if (price >= 0.001) {
-                            // 0.001到0.01之间，显示5位小数
-                            return price.toFixed(5);
-                        } else {
-                            // 小于0.001，显示6位小数
-                            return price.toFixed(6);
-                        }
-                    };
-                    
-                    // 数量显示 - 智能精度
-                    let quantityText;
-                    if (trade.quantity >= 1) {
-                        // 大于等于1，显示整数或1位小数
-                        quantityText = trade.quantity % 1 === 0 ? trade.quantity.toFixed(0) : trade.quantity.toFixed(1);
-                    } else if (trade.quantity >= 0.01) {
-                        // 0.01到1之间，显示2位小数
-                        quantityText = trade.quantity.toFixed(2);
-                    } else {
-                        // 小于0.01，显示4位小数
-                        quantityText = trade.quantity.toFixed(4);
-                    }
+                    // 数量显示 - 使用USDT格式化（保留4位小数）
+                    const quantityText = formatUSDT(trade.quantity, 4);
                     
                     // 盈亏显示
                     const pnl = trade.pnl || 0;
                     const pnlClass = pnl >= 0 ? 'profit' : 'loss';
-                    const pnlText = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`;
+                    const pnlText = pnl >= 0 ? `+$${formatUSDT(pnl)}` : `-$${formatUSDT(Math.abs(pnl))}`;
                     
                     return `
                         <tr>
@@ -346,11 +296,11 @@ class TradingMonitor {
                             <td><span class="symbol">${trade.symbol}</span></td>
                             <td><span class="side ${sideClass}">${sideText}</span></td>
                             <td>${trade.leverage}x</td>
-                            <td>$${formatPrice(trade.openPrice)}</td>
-                            <td>$${formatPrice(trade.closePrice)}</td>
+                            <td>$${formatPriceBySymbol(trade.symbol, trade.openPrice)}</td>
+                            <td>$${formatPriceBySymbol(trade.symbol, trade.closePrice)}</td>
                             <td>${quantityText}</td>
                             <td>${trade.holdingTime}</td>
-                            <td>$${trade.totalFee.toFixed(2)}</td>
+                            <td>$${formatUSDT(trade.totalFee)}</td>
                             <td><span class="${pnlClass}">${pnlText}</span></td>
                         </tr>
                     `;
@@ -453,8 +403,7 @@ class TradingMonitor {
         this.cryptoPrices.forEach((price, symbol) => {
                 const priceElements = document.querySelectorAll(`[data-symbol="${symbol}"]`);
                 priceElements.forEach(el => {
-                const decimals = price < 1 ? 4 : 2;
-                el.textContent = '$' + price.toFixed(decimals);
+                el.textContent = '$' + formatPriceBySymbol(symbol, price);
             });
         });
     }
@@ -624,7 +573,7 @@ class TradingMonitor {
                         ticks: {
                             color: '#9ca3af',
                             callback: function(value) {
-                                return '$' + value.toFixed(2);
+                                return '$' + formatUSDT(value);
                             }
                         }
                     }
@@ -677,7 +626,7 @@ class TradingMonitor {
         });
         
         this.equityChart.data.datasets[0].data = historyData.map(d => 
-            parseFloat(d.totalValue.toFixed(2))
+            parseFloat(formatUSDT(d.totalValue))
         );
         
         // 固定不显示圆点
@@ -735,7 +684,7 @@ class TradingMonitor {
             }
             
             // 基础统计
-            this.updateStatValue('stat-win-rate', `${stats.winRate.toFixed(1)}%`);
+            this.updateStatValue('stat-win-rate', `${formatPercent(stats.winRate, 1)}%`);
             this.updateStatValue('stat-total-trades', stats.totalTrades);
             this.updateStatValue('stat-max-loss', this.formatPnl(stats.maxLoss));
             
@@ -786,17 +735,17 @@ class TradingMonitor {
                 });
             }
             
-            this.updateStatValue('stat-total-profit', `+$${totalProfit.toFixed(2)}`);
-            this.updateStatValue('stat-total-loss', `-$${totalLoss.toFixed(2)}`);
-            this.updateStatValue('stat-total-fee', `$${totalFee.toFixed(2)}`);
+            this.updateStatValue('stat-total-profit', `+$${formatUSDT(totalProfit)}`);
+            this.updateStatValue('stat-total-loss', `-$${formatUSDT(totalLoss)}`);
+            this.updateStatValue('stat-total-fee', `$${formatUSDT(totalFee)}`);
             
             // 计算平均杠杆
             const avgLeverage = leverageCount > 0 ? totalLeverage / leverageCount : 0;
-            this.updateStatValue('stat-avg-leverage', `${avgLeverage.toFixed(1)}x`);
+            this.updateStatValue('stat-avg-leverage', `${formatPercent(avgLeverage, 1)}x`);
             
             // 计算利润因子
             const profitFactor = totalLoss > 0 ? totalProfit / totalLoss : 0;
-            this.updateStatValue('stat-profit-factor', profitFactor.toFixed(2));
+            this.updateStatValue('stat-profit-factor', formatPercent(profitFactor));
             
             // 计算平均持仓时长
             const avgDuration = trades.trades.length > 0 ? totalDurationSeconds / trades.trades.length : 0;
@@ -804,21 +753,21 @@ class TradingMonitor {
             
             // 计算夏普比率（简化版）
             const sharpeRatio = this.calculateSharpe(trades.trades, account.initialBalance);
-            this.updateStatValue('stat-sharpe', sharpeRatio.toFixed(2));
+            this.updateStatValue('stat-sharpe', formatPercent(sharpeRatio));
             
             // 计算最大回撤
             const maxDrawdown = this.calculateMaxDrawdown(trades.trades, account.initialBalance);
-            this.updateStatValue('stat-max-drawdown', `${maxDrawdown.toFixed(1)}%`);
+            this.updateStatValue('stat-max-drawdown', `${formatPercent(maxDrawdown, 1)}%`);
             
             // 更新方向分布
             const totalTrades = directionCounts.long + directionCounts.short;
-            const longPercent = totalTrades > 0 ? (directionCounts.long / totalTrades * 100).toFixed(1) : '0.0';
-            const shortPercent = totalTrades > 0 ? (directionCounts.short / totalTrades * 100).toFixed(1) : '0.0';
-            const neutralPercent = (100 - parseFloat(longPercent) - parseFloat(shortPercent)).toFixed(1);
+            const longPercent = totalTrades > 0 ? (directionCounts.long / totalTrades * 100) : 0;
+            const shortPercent = totalTrades > 0 ? (directionCounts.short / totalTrades * 100) : 0;
+            const neutralPercent = (100 - longPercent - shortPercent);
             
-            document.getElementById('stat-long-percent').textContent = `${longPercent}%`;
-            document.getElementById('stat-short-percent').textContent = `${shortPercent}%`;
-            document.getElementById('stat-neutral-percent').textContent = `${neutralPercent}%`;
+            document.getElementById('stat-long-percent').textContent = `${formatPercent(longPercent, 1)}%`;
+            document.getElementById('stat-short-percent').textContent = `${formatPercent(shortPercent, 1)}%`;
+            document.getElementById('stat-neutral-percent').textContent = `${formatPercent(neutralPercent, 1)}%`;
             
             // 计算 HHI（赫芬达尔-赫希曼指数）来衡量交易集中度
             // HHI = Σ(市场份额%)^2，范围0-10000
@@ -846,7 +795,7 @@ class TradingMonitor {
             // 更新 HHI 标签
             const hhiLabelEl = document.getElementById('stat-hhi-label');
             if (hhiLabelEl) {
-                hhiLabelEl.textContent = ` · HHI ${(hhi / 100).toFixed(2)} · ${concentrationLevel}`;
+                hhiLabelEl.textContent = ` · HHI ${formatPercent(hhi / 100)} · ${concentrationLevel}`;
             }
             
             // 更新交易对偏好（TOP 5）
@@ -854,8 +803,8 @@ class TradingMonitor {
                 .sort((a, b) => b[1] - a[1])
                 .slice(0, 5)
                 .map(([symbol, count]) => {
-                    const percent = totalTrades > 0 ? (count / totalTrades * 100).toFixed(1) : '0.0';
-                    return `${symbol} ${percent}%`;
+                    const percent = totalTrades > 0 ? (count / totalTrades * 100) : 0;
+                    return `${symbol} ${formatPercent(percent, 1)}%`;
                 })
                 .join('  ');
             
@@ -869,9 +818,9 @@ class TradingMonitor {
     // 辅助方法：格式化盈亏显示
     formatPnl(value) {
         if (value >= 0) {
-            return `+$${value.toFixed(2)}`;
+            return `+$${formatUSDT(value)}`;
         } else {
-            return `-$${Math.abs(value).toFixed(2)}`;
+            return `-$${formatUSDT(Math.abs(value))}`;
         }
     }
     

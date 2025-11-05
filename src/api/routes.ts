@@ -24,6 +24,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { createClient } from "@libsql/client";
 import { createGateClient } from "../services/gateClient";
 import { createPinoLogger } from "@voltagent/logger";
+import { formatPrice, formatUSDT, formatPercent, getDecimalPlacesBySymbol } from "../utils/priceFormatter";
 
 const logger = createPinoLogger({
   name: "api-routes",

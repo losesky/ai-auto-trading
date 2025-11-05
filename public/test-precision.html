@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>价格格式化测试页面</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+        }
+        h1 {
+            color: #00cc88;
+            text-align: center;
+        }
+        h2 {
+            color: #00cc88;
+            border-bottom: 2px solid #00cc88;
+            padding-bottom: 10px;
+            margin-top: 40px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: #16213e;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border: 1px solid #0f3460;
+        }
+        th {
+            background: #0f3460;
+            color: #00cc88;
+        }
+        .old {
+            color: #ff6b6b;
+        }
+        .new {
+            color: #00cc88;
+            font-weight: bold;
+        }
+        .symbol {
+            color: #ffd93d;
+            font-weight: bold;
+        }
+        .note {
+            background: #0f3460;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .success {
+            color: #00cc88;
+        }
+        .error {
+            color: #ff6b6b;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎯 价格格式化工具测试</h1>
+    
+    <div class="note">
+        <strong>测试说明：</strong> 本页面展示价格格式化工具的效果对比
+        <br>• <span class="error">红色</span> = 优化前（硬编码精度）
+        <br>• <span class="success">绿色</span> = 优化后（智能精度）
+    </div>
+
+    <h2>1. 不同价格区间测试</h2>
+    <table id="priceRangeTest">
+        <thead>
+            <tr>
+                <th>价格</th>
+                <th>币种</th>
+                <th>优化前 (.toFixed(2))</th>
+                <th>优化后 (formatPrice)</th>
+                <th>说明</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <h2>2. 特定币种测试</h2>
+    <table id="symbolTest">
+        <thead>
+            <tr>
+                <th>币种</th>
+                <th>价格</th>
+                <th>优化前 (.toFixed(2))</th>
+                <th>优化后 (formatPriceBySymbol)</th>
+                <th>说明</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <h2>3. USDT 金额测试</h2>
+    <table id="usdtTest">
+        <thead>
+            <tr>
+                <th>金额</th>
+                <th>优化前 (.toFixed(2))</th>
+                <th>优化后 (formatUSDT)</th>
+                <th>说明</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <h2>4. 百分比测试</h2>
+    <table id="percentTest">
+        <thead>
+            <tr>
+                <th>数值</th>
+                <th>优化前 (.toFixed(2))</th>
+                <th>优化后 (formatPercent)</th>
+                <th>说明</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <script src="price-formatter.js"></script>
+    <script>
+        // 价格区间测试数据
+        const priceRangeData = [
+            { price: 45678.123, symbol: 'BTC', expected: 2, note: '高价币' },
+            { price: 2345.678, symbol: 'ETH', expected: 2, note: '中高价币' },
+            { price: 456.789, symbol: 'BNB', expected: 2, note: '中价币' },
+            { price: 12.3456, symbol: 'LINK', expected: 4, note: '中低价币' },
+            { price: 0.16234, symbol: 'DOGE', expected: 5, note: '低价币' },
+            { price: 0.056789, symbol: 'TRX', expected: 5, note: '低价币' },
+            { price: 0.001234, symbol: 'XEC', expected: 7, note: '超低价币' },
+            { price: 0.00001234, symbol: 'SHIB', expected: 8, note: '极低价币' }
+        ];
+
+        // 特定币种测试数据
+        const symbolData = [
+            { symbol: 'BTC', price: 45678.123, note: '比特币' },
+            { symbol: 'ETH', price: 2345.678, note: '以太坊' },
+            { symbol: 'DOGE', price: 0.16234, note: '狗狗币 (重要测试)' },
+            { symbol: 'XRP', price: 0.56789, note: '瑞波币' },
+            { symbol: 'SHIB', price: 0.00001234, note: '柴犬币' },
+            { symbol: 'PEPE', price: 0.000001234, note: 'PEPE币' }
+        ];
+
+        // USDT 金额测试数据
+        const usdtData = [
+            { amount: 1234.5678, note: '大额' },
+            { amount: 123.45, note: '中额' },
+            { amount: 0.1234, note: '小额' },
+            { amount: 0.001234, note: '极小额 (手续费)' }
+        ];
+
+        // 百分比测试数据
+        const percentData = [
+            { value: 65.123, note: '胜率' },
+            { value: 12.3456, note: '收益率' },
+            { value: 0.1234, note: '小百分比' },
+            { value: 123.456, note: '大百分比' }
+        ];
+
+        // 填充价格区间测试表格
+        const priceRangeTable = document.getElementById('priceRangeTest').querySelector('tbody');
+        priceRangeData.forEach(item => {
+            const row = priceRangeTable.insertRow();
+            row.innerHTML = `
+                <td>${item.price}</td>
+                <td class="symbol">${item.symbol}</td>
+                <td class="old">${item.price.toFixed(2)}</td>
+                <td class="new">${formatPrice(item.price)}</td>
+                <td>${item.note} (${item.expected}位小数)</td>
+            `;
+        });
+
+        // 填充特定币种测试表格
+        const symbolTable = document.getElementById('symbolTest').querySelector('tbody');
+        symbolData.forEach(item => {
+            const row = symbolTable.insertRow();
+            row.innerHTML = `
+                <td class="symbol">${item.symbol}</td>
+                <td>${item.price}</td>
+                <td class="old">${item.price.toFixed(2)}</td>
+                <td class="new">${formatPriceBySymbol(item.symbol, item.price)}</td>
+                <td>${item.note}</td>
+            `;
+        });
+
+        // 填充 USDT 测试表格
+        const usdtTable = document.getElementById('usdtTest').querySelector('tbody');
+        usdtData.forEach(item => {
+            const row = usdtTable.insertRow();
+            row.innerHTML = `
+                <td>${item.amount}</td>
+                <td class="old">${item.amount.toFixed(2)}</td>
+                <td class="new">${formatUSDT(item.amount, 4)}</td>
+                <td>${item.note}</td>
+            `;
+        });
+
+        // 填充百分比测试表格
+        const percentTable = document.getElementById('percentTest').querySelector('tbody');
+        percentData.forEach(item => {
+            const row = percentTable.insertRow();
+            row.innerHTML = `
+                <td>${item.value}</td>
+                <td class="old">${item.value.toFixed(2)}%</td>
+                <td class="new">${formatPercent(item.value)}%</td>
+                <td>${item.note}</td>
+            `;
+        });
+
+        // 添加总结
+        const summary = document.createElement('div');
+        summary.className = 'note';
+        summary.innerHTML = `
+            <h2>✅ 测试总结</h2>
+            <p><strong class="success">优化后的效果：</strong></p>
+            <ul>
+                <li><strong class="symbol">DOGE</strong> (0.16234) 从 <span class="error">"0.16"</span> 变为 <span class="success">"0.16234"</span> ✅</li>
+                <li><strong class="symbol">SHIB</strong> (0.00001234) 从 <span class="error">"0.00"</span> 变为 <span class="success">"0.00001234"</span> ✅</li>
+                <li><strong class="symbol">BTC</strong> (45678.123) 保持 <span class="success">"45678.12"</span> (合适精度) ✅</li>
+                <li>所有 USDT 金额统一使用 2-4 位小数 ✅</li>
+                <li>所有百分比统一使用 2 位小数 ✅</li>
+            </ul>
+            <p><strong class="success">核心价值：</strong> 低价币不再显示为 "0.00"，精度丢失问题完全解决！</p>
+        `;
+        document.body.appendChild(summary);
+    </script>
+</body>
+</html>

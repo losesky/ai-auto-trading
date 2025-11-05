@@ -26,6 +26,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import * as tradingTools from "../tools/trading";
 import { formatChinaTime } from "../utils/timeUtils";
 import { RISK_PARAMS } from "../config/riskParams";
+import { formatPrice, formatUSDT, formatPercent, formatATR, getDecimalPlacesBySymbol } from "../utils/priceFormatter";
 
 /**
  * 账户风险配置
@@ -414,16 +415,16 @@ export function generateTradingPrompt(data: {
 
 【AI战术决策 - 强烈建议遵守】
 ┌─────────────────────────────────────────┐
-│ 策略止损：${params.stopLoss.low}% ~ ${params.stopLoss.high}%（根据杠杆）│
+│ 策略止损：${formatPercent(params.stopLoss.low)}% ~ ${formatPercent(params.stopLoss.high)}%（根据杠杆）│
 │ 移动止盈：                               │
-│   • 盈利≥+${params.trailingStop.level1.trigger}% → 止损移至+${params.trailingStop.level1.stopAt}%  │
-│   • 盈利≥+${params.trailingStop.level2.trigger}% → 止损移至+${params.trailingStop.level2.stopAt}%  │
-│   • 盈利≥+${params.trailingStop.level3.trigger}% → 止损移至+${params.trailingStop.level3.stopAt}% │
+│   • 盈利≥+${formatPercent(params.trailingStop.level1.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level1.stopAt)}%  │
+│   • 盈利≥+${formatPercent(params.trailingStop.level2.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level2.stopAt)}%  │
+│   • 盈利≥+${formatPercent(params.trailingStop.level3.trigger)}% → 止损移至+${formatPercent(params.trailingStop.level3.stopAt)}% │
 │ 分批止盈：                               │
-│   • 盈利≥+${params.partialTakeProfit.stage1.trigger}% → 平仓${params.partialTakeProfit.stage1.closePercent}%  │
-│   • 盈利≥+${params.partialTakeProfit.stage2.trigger}% → 平仓${params.partialTakeProfit.stage2.closePercent}%  │
-│   • 盈利≥+${params.partialTakeProfit.stage3.trigger}% → 平仓${params.partialTakeProfit.stage3.closePercent}% │
-│ 峰值回撤：≥${params.peakDrawdownProtection}% → 危险信号，立即平仓 │
+│   • 盈利≥+${formatPercent(params.partialTakeProfit.stage1.trigger)}% → 平仓${formatPercent(params.partialTakeProfit.stage1.closePercent)}%  │
+│   • 盈利≥+${formatPercent(params.partialTakeProfit.stage2.trigger)}% → 平仓${formatPercent(params.partialTakeProfit.stage2.closePercent)}%  │
+│   • 盈利≥+${formatPercent(params.partialTakeProfit.stage3.trigger)}% → 平仓${formatPercent(params.partialTakeProfit.stage3.closePercent)}% │
+│ 峰值回撤：≥${formatPercent(params.peakDrawdownProtection)}% → 危险信号，立即平仓 │
 └─────────────────────────────────────────┘
 
 【决策流程 - 按优先级执行】
@@ -467,7 +468,7 @@ export function generateTradingPrompt(data: {
     const data = dataRaw as any;
     
     prompt += `\n所有 ${symbol} 数据\n`;
-    prompt += `当前价格 = ${data.price.toFixed(1)}, 当前EMA20 = ${data.ema20.toFixed(3)}, 当前MACD = ${data.macd.toFixed(3)}, 当前RSI（7周期） = ${data.rsi7.toFixed(3)}\n\n`;
+    prompt += `当前价格 = ${formatPrice(data.price)}, 当前EMA20 = ${formatPrice(data.ema20)}, 当前MACD = ${formatPrice(data.macd)}, 当前RSI（7周期） = ${formatPercent(data.rsi7, 3)}\n\n`;
     
     // 资金费率
     if (data.fundingRate !== undefined) {
@@ -480,20 +481,21 @@ export function generateTradingPrompt(data: {
       const series = data.intradaySeries;
       prompt += `日内序列（按分钟，最旧 → 最新）：\n\n`;
       
-      // Mid prices
-      prompt += `中间价: [${series.midPrices.map((p: number) => p.toFixed(1)).join(", ")}]\n\n`;
+      // Mid prices - 根据币种使用合适的精度
+      const priceDecimals = getDecimalPlacesBySymbol(symbol, data.price);
+      prompt += `中间价: [${series.midPrices.map((p: number) => formatPrice(p, priceDecimals)).join(", ")}]\n\n`;
       
       // EMA indicators (20‑period)
-      prompt += `EMA指标（20周期）: [${series.ema20Series.map((e: number) => e.toFixed(3)).join(", ")}]\n\n`;
+      prompt += `EMA指标（20周期）: [${series.ema20Series.map((e: number) => formatPrice(e)).join(", ")}]\n\n`;
       
       // MACD indicators
-      prompt += `MACD指标: [${series.macdSeries.map((m: number) => m.toFixed(3)).join(", ")}]\n\n`;
+      prompt += `MACD指标: [${series.macdSeries.map((m: number) => formatPrice(m)).join(", ")}]\n\n`;
       
       // RSI indicators (7‑Period)
-      prompt += `RSI指标（7周期）: [${series.rsi7Series.map((r: number) => r.toFixed(3)).join(", ")}]\n\n`;
+      prompt += `RSI指标（7周期）: [${series.rsi7Series.map((r: number) => formatPercent(r, 3)).join(", ")}]\n\n`;
       
       // RSI indicators (14‑Period)
-      prompt += `RSI指标（14周期）: [${series.rsi14Series.map((r: number) => r.toFixed(3)).join(", ")}]\n\n`;
+      prompt += `RSI指标（14周期）: [${series.rsi14Series.map((r: number) => formatPercent(r, 3)).join(", ")}]\n\n`;
     }
     
     // 更长期的上下文数据（1小时级别 - 用于短线交易）
@@ -501,21 +503,21 @@ export function generateTradingPrompt(data: {
       const ltc = data.longerTermContext;
       prompt += `更长期上下文（1小时时间框架）：\n\n`;
       
-      prompt += `20周期EMA: ${ltc.ema20.toFixed(2)} vs. 50周期EMA: ${ltc.ema50.toFixed(2)}\n\n`;
+      prompt += `20周期EMA: ${formatPrice(ltc.ema20)} vs. 50周期EMA: ${formatPrice(ltc.ema50)}\n\n`;
       
       if (ltc.atr3 && ltc.atr14) {
-        prompt += `3周期ATR: ${ltc.atr3.toFixed(2)} vs. 14周期ATR: ${ltc.atr14.toFixed(3)}\n\n`;
+        prompt += `3周期ATR: ${formatATR(ltc.atr3, data.price)} vs. 14周期ATR: ${formatATR(ltc.atr14, data.price)}\n\n`;
       }
       
-      prompt += `当前成交量: ${ltc.currentVolume.toFixed(2)} vs. 平均成交量: ${ltc.avgVolume.toFixed(3)}\n\n`;
+      prompt += `当前成交量: ${formatUSDT(ltc.currentVolume)} vs. 平均成交量: ${formatUSDT(ltc.avgVolume)}\n\n`;
       
       // MACD 和 RSI 时序（4小时，最近10个数据点）
       if (ltc.macdSeries && ltc.macdSeries.length > 0) {
-        prompt += `MACD指标: [${ltc.macdSeries.map((m: number) => m.toFixed(3)).join(", ")}]\n\n`;
+        prompt += `MACD指标: [${ltc.macdSeries.map((m: number) => formatPrice(m)).join(", ")}]\n\n`;
       }
       
       if (ltc.rsi14Series && ltc.rsi14Series.length > 0) {
-        prompt += `RSI指标（14周期）: [${ltc.rsi14Series.map((r: number) => r.toFixed(3)).join(", ")}]\n\n`;
+        prompt += `RSI指标（14周期）: [${ltc.rsi14Series.map((r: number) => formatPercent(r, 3)).join(", ")}]\n\n`;
       }
     }
     
@@ -535,7 +537,9 @@ export function generateTradingPrompt(data: {
       for (const tf of tfList) {
         const tfData = data.timeframes[tf.key];
         if (tfData) {
-          prompt += `${tf.name}: 价格=${tfData.currentPrice.toFixed(2)}, EMA20=${tfData.ema20.toFixed(3)}, EMA50=${tfData.ema50.toFixed(3)}, MACD=${tfData.macd.toFixed(3)}, RSI7=${tfData.rsi7.toFixed(2)}, RSI14=${tfData.rsi14.toFixed(2)}, 成交量=${tfData.volume.toFixed(2)}\n`;
+          // 使用 formatPriceBySymbol 根据币种自动选择合适的价格精度
+          const formattedPrice = formatPrice(tfData.currentPrice, getDecimalPlacesBySymbol(symbol, tfData.currentPrice));
+          prompt += `${tf.name}: 价格=${formattedPrice}, EMA20=${formatPrice(tfData.ema20, 3)}, EMA50=${formatPrice(tfData.ema50, 3)}, MACD=${formatPrice(tfData.macd, 3)}, RSI7=${formatPercent(tfData.rsi7)}, RSI14=${formatPercent(tfData.rsi14)}, 成交量=${formatUSDT(tfData.volume)}\n`;
         }
       }
       prompt += `\n`;
@@ -550,19 +554,19 @@ export function generateTradingPrompt(data: {
     const drawdownFromPeak = ((accountInfo.peakBalance - accountInfo.totalBalance) / accountInfo.peakBalance) * 100;
     const drawdownFromInitial = ((accountInfo.initialBalance - accountInfo.totalBalance) / accountInfo.initialBalance) * 100;
     
-    prompt += `初始账户净值: ${accountInfo.initialBalance.toFixed(2)} USDT\n`;
-    prompt += `峰值账户净值: ${accountInfo.peakBalance.toFixed(2)} USDT\n`;
-    prompt += `当前账户价值: ${accountInfo.totalBalance.toFixed(2)} USDT\n`;
-    prompt += `账户回撤 (从峰值): ${drawdownFromPeak >= 0 ? '' : '+'}${(-drawdownFromPeak).toFixed(2)}%\n`;
-    prompt += `账户回撤 (从初始): ${drawdownFromInitial >= 0 ? '' : '+'}${(-drawdownFromInitial).toFixed(2)}%\n\n`;
+    prompt += `初始账户净值: ${formatUSDT(accountInfo.initialBalance)} USDT\n`;
+    prompt += `峰值账户净值: ${formatUSDT(accountInfo.peakBalance)} USDT\n`;
+    prompt += `当前账户价值: ${formatUSDT(accountInfo.totalBalance)} USDT\n`;
+    prompt += `账户回撤 (从峰值): ${drawdownFromPeak >= 0 ? '' : '+'}${formatPercent(-drawdownFromPeak)}%\n`;
+    prompt += `账户回撤 (从初始): ${drawdownFromInitial >= 0 ? '' : '+'}${formatPercent(-drawdownFromInitial)}%\n\n`;
     
     // 添加风控警告（使用配置参数）
     // 注释：已移除强制清仓限制，仅保留警告提醒
     if (drawdownFromPeak >= RISK_PARAMS.ACCOUNT_DRAWDOWN_WARNING_PERCENT) {
-      prompt += `提醒: 账户回撤已达到 ${drawdownFromPeak.toFixed(2)}%，请谨慎交易\n\n`;
+      prompt += `提醒: 账户回撤已达到 ${formatPercent(drawdownFromPeak)}%，请谨慎交易\n\n`;
     }
   } else {
-    prompt += `当前账户价值: ${accountInfo.totalBalance.toFixed(2)} USDT\n\n`;
+    prompt += `当前账户价值: ${formatUSDT(accountInfo.totalBalance)} USDT\n\n`;
   }
   
   prompt += `当前总收益率: ${accountInfo.returnPercent.toFixed(2)}%\n\n`;
@@ -570,8 +574,8 @@ export function generateTradingPrompt(data: {
   // 计算所有持仓的未实现盈亏总和
   const totalUnrealizedPnL = positions.reduce((sum, pos) => sum + (pos.unrealized_pnl || 0), 0);
   
-  prompt += `可用资金: ${accountInfo.availableBalance.toFixed(1)} USDT\n\n`;
-  prompt += `未实现盈亏: ${totalUnrealizedPnL.toFixed(2)} USDT (${totalUnrealizedPnL >= 0 ? '+' : ''}${((totalUnrealizedPnL / accountInfo.totalBalance) * 100).toFixed(2)}%)\n\n`;
+  prompt += `可用资金: ${formatUSDT(accountInfo.availableBalance)} USDT\n\n`;
+  prompt += `未实现盈亏: ${formatUSDT(totalUnrealizedPnL)} USDT (${totalUnrealizedPnL >= 0 ? '+' : ''}${formatPercent((totalUnrealizedPnL / accountInfo.totalBalance) * 100)}%)\n\n`;
   
   // 当前持仓和表现
   if (positions.length > 0) {
@@ -600,13 +604,13 @@ export function generateTradingPrompt(data: {
       
       prompt += `当前活跃持仓: ${pos.symbol} ${pos.side === 'long' ? '做多' : '做空'}\n`;
       prompt += `  杠杆倍数: ${pos.leverage}x\n`;
-      prompt += `  盈亏百分比: ${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}% (已考虑杠杆倍数)\n`;
-      prompt += `  盈亏金额: ${pos.unrealized_pnl >= 0 ? '+' : ''}${pos.unrealized_pnl.toFixed(2)} USDT\n`;
-      prompt += `  开仓价: ${pos.entry_price.toFixed(2)}\n`;
-      prompt += `  当前价: ${pos.current_price.toFixed(2)}\n`;
+      prompt += `  盈亏百分比: ${pnlPercent >= 0 ? '+' : ''}${formatPercent(pnlPercent)}% (已考虑杠杆倍数)\n`;
+      prompt += `  盈亏金额: ${pos.unrealized_pnl >= 0 ? '+' : ''}${formatUSDT(pos.unrealized_pnl)} USDT\n`;
+      prompt += `  开仓价: ${formatPrice(pos.entry_price)}\n`;
+      prompt += `  当前价: ${formatPrice(pos.current_price)}\n`;
       prompt += `  开仓时间: ${formatChinaTime(pos.opened_at)}\n`;
       prompt += `  已持仓: ${holdingHours} 小时 (${holdingMinutes} 分钟, ${holdingCycles} 个周期)\n`;
-      prompt += `  距离36小时限制: ${remainingHours.toFixed(1)} 小时 (${remainingCycles} 个周期)\n`;
+      prompt += `  距离36小时限制: ${formatPercent(remainingHours, 1)} 小时 (${remainingCycles} 个周期)\n`;
       
       // 如果接近36小时,添加警告
       if (remainingHours < 2) {
@@ -621,7 +625,7 @@ export function generateTradingPrompt(data: {
   
   // Sharpe Ratio
   if (accountInfo.sharpeRatio !== undefined) {
-    prompt += `夏普比率: ${accountInfo.sharpeRatio.toFixed(3)}\n\n`;
+    prompt += `夏普比率: ${formatPercent(accountInfo.sharpeRatio, 3)}\n\n`;
   }
   
   // 历史成交记录（最近10条）
@@ -639,13 +643,13 @@ export function generateTradingPrompt(data: {
       
       prompt += `交易: ${trade.symbol} ${trade.type === 'open' ? '开仓' : '平仓'} ${trade.side.toUpperCase()}\n`;
       prompt += `  时间: ${tradeTime}\n`;
-      prompt += `  价格: ${trade.price.toFixed(2)}, 数量: ${trade.quantity.toFixed(4)}, 杠杆: ${trade.leverage}x\n`;
-      prompt += `  手续费: ${trade.fee.toFixed(4)} USDT\n`;
+      prompt += `  价格: ${formatPrice(trade.price)}, 数量: ${formatUSDT(trade.quantity, 4)}, 杠杆: ${trade.leverage}x\n`;
+      prompt += `  手续费: ${formatUSDT(trade.fee, 4)} USDT\n`;
       
       // 对于平仓交易，总是显示盈亏金额
       if (trade.type === 'close') {
         if (trade.pnl !== undefined && trade.pnl !== null) {
-          prompt += `  盈亏: ${trade.pnl >= 0 ? '+' : ''}${trade.pnl.toFixed(2)} USDT\n`;
+          prompt += `  盈亏: ${trade.pnl >= 0 ? '+' : ''}${formatUSDT(trade.pnl)} USDT\n`;
           totalProfit += trade.pnl;
           if (trade.pnl > 0) {
             profitCount++;
@@ -663,10 +667,10 @@ export function generateTradingPrompt(data: {
     if (profitCount > 0 || lossCount > 0) {
       const winRate = profitCount / (profitCount + lossCount) * 100;
       prompt += `最近10条交易统计（仅供参考）:\n`;
-      prompt += `  - 胜率: ${winRate.toFixed(1)}%\n`;
+      prompt += `  - 胜率: ${formatPercent(winRate, 1)}%\n`;
       prompt += `  - 盈利交易: ${profitCount}笔\n`;
       prompt += `  - 亏损交易: ${lossCount}笔\n`;
-      prompt += `  - 最近10条净盈亏: ${totalProfit >= 0 ? '+' : ''}${totalProfit.toFixed(2)} USDT\n`;
+      prompt += `  - 最近10条净盈亏: ${totalProfit >= 0 ? '+' : ''}${formatUSDT(totalProfit)} USDT\n`;
       prompt += `\n注意：此数值仅为最近10笔交易统计，用于评估近期策略有效性，不是账户总盈亏。\n`;
       prompt += `账户真实盈亏请参考上方"当前账户状态"中的收益率和总资产变化。\n\n`;
     }
@@ -682,7 +686,7 @@ export function generateTradingPrompt(data: {
       const decisionTime = formatChinaTime(decision.timestamp);
       
       prompt += `决策 #${decision.iteration} (${decisionTime}):\n`;
-      prompt += `  账户价值: ${decision.account_value.toFixed(2)} USDT\n`;
+      prompt += `  账户价值: ${formatUSDT(decision.account_value)} USDT\n`;
       prompt += `  持仓数量: ${decision.positions_count}\n`;
       prompt += `  决策: ${decision.decision}\n\n`;
     }
@@ -800,9 +804,9 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
   
   (1) 止损策略（必须严格遵守，这是保护本金的生命线）：
      * 策略止损线（必须遵守，不可随意突破）：
-       - ${params.leverageMin}-${Math.floor((params.leverageMin + params.leverageMax) / 2)}倍杠杆：止损线 ${params.stopLoss.low}%（必须执行）
-       - ${Math.floor((params.leverageMin + params.leverageMax) / 2)}-${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}倍杠杆：止损线 ${params.stopLoss.mid}%（必须执行）
-       - ${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}-${params.leverageMax}倍杠杆：止损线 ${params.stopLoss.high}%（必须执行）
+       - ${params.leverageMin}-${Math.floor((params.leverageMin + params.leverageMax) / 2)}倍杠杆：止损线 ${formatPercent(params.stopLoss.low)}%（必须执行）
+       - ${Math.floor((params.leverageMin + params.leverageMax) / 2)}-${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}倍杠杆：止损线 ${formatPercent(params.stopLoss.mid)}%（必须执行）
+       - ${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}-${params.leverageMax}倍杠杆：止损线 ${formatPercent(params.stopLoss.high)}%（必须执行）
      * 微调空间：仅可根据关键支撑位/阻力位微调±1%（不能超过）
      * 重要警告：
        - 触及止损线必须立即平仓，不要犹豫，不要等待反弹
@@ -812,9 +816,9 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
   
   (2) 移动止盈策略（保护利润的核心机制，强烈建议执行）：
      * ${params.name}策略的移动止盈建议（已根据${params.leverageMax}倍最大杠杆优化）：
-       - 盈利 ≥ +${params.trailingStop.level1.trigger}% → 建议将止损移至+${params.trailingStop.level1.stopAt}%（保护至少${params.trailingStop.level1.stopAt}%利润）
-       - 盈利 ≥ +${params.trailingStop.level2.trigger}% → 建议将止损移至+${params.trailingStop.level2.stopAt}%（保护至少${params.trailingStop.level2.stopAt}%利润）
-       - 盈利 ≥ +${params.trailingStop.level3.trigger}% → 建议将止损移至+${params.trailingStop.level3.stopAt}%（保护至少${params.trailingStop.level3.stopAt}%利润）
+       - 盈利 ≥ +${formatPercent(params.trailingStop.level1.trigger)}% → 建议将止损移至+${formatPercent(params.trailingStop.level1.stopAt)}%（保护至少${formatPercent(params.trailingStop.level1.stopAt)}%利润）
+       - 盈利 ≥ +${formatPercent(params.trailingStop.level2.trigger)}% → 建议将止损移至+${formatPercent(params.trailingStop.level2.stopAt)}%（保护至少${formatPercent(params.trailingStop.level2.stopAt)}%利润）
+       - 盈利 ≥ +${formatPercent(params.trailingStop.level3.trigger)}% → 建议将止损移至+${formatPercent(params.trailingStop.level3.stopAt)}%（保护至少${formatPercent(params.trailingStop.level3.stopAt)}%利润）
      * 灵活调整：
        - 强趋势行情：可适当放宽止损线，给利润更多空间
        - 震荡行情：应严格执行，避免利润回吐
@@ -830,17 +834,17 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
          * 趋势强劲、没有明显阻力 → 可以让利润继续奔跑
          * 持仓时间已久(4小时+)且有盈利 → 考虑主动止盈
      * 参考建议（仅供参考，不是强制）：
-       - 盈利 ≥ +${params.partialTakeProfit.stage1.trigger}% → 可考虑平仓${params.partialTakeProfit.stage1.closePercent}%
-       - 盈利 ≥ +${params.partialTakeProfit.stage2.trigger}% → 可考虑平仓剩余${params.partialTakeProfit.stage2.closePercent}%
+       - 盈利 ≥ +${formatPercent(params.partialTakeProfit.stage1.trigger)}% → 可考虑平仓${formatPercent(params.partialTakeProfit.stage1.closePercent)}%
+       - 盈利 ≥ +${formatPercent(params.partialTakeProfit.stage2.trigger)}% → 可考虑平仓剩余${formatPercent(params.partialTakeProfit.stage2.closePercent)}%
      * 执行方式：使用 closePosition 的 percentage 参数
        - 示例：closePosition(symbol: 'BTC', percentage: 50) 可平掉50%仓位
      * 记住：小的确定性盈利 > 大的不确定性盈利！
   
   (4) 峰值回撤保护（危险信号）：
-     * ${params.name}策略的峰值回撤阈值：${params.peakDrawdownProtection}%（已根据风险偏好优化）
-     * 如果持仓曾达到峰值盈利，当前盈利从峰值回撤 ≥ ${params.peakDrawdownProtection}%
+     * ${params.name}策略的峰值回撤阈值：${formatPercent(params.peakDrawdownProtection)}%（已根据风险偏好优化）
+     * 如果持仓曾达到峰值盈利，当前盈利从峰值回撤 ≥ ${formatPercent(params.peakDrawdownProtection)}%
      * 计算方式：回撤% = (峰值盈利 - 当前盈利) / 峰值盈利 × 100%
-     * 示例：峰值+${Math.round(params.peakDrawdownProtection * 1.2)}% → 当前+${Math.round(params.peakDrawdownProtection * 1.2 * (1 - params.peakDrawdownProtection / 100))}%，回撤${params.peakDrawdownProtection}%（危险！）
+     * 示例：峰值+${Math.round(params.peakDrawdownProtection * 1.2)}% → 当前+${Math.round(params.peakDrawdownProtection * 1.2 * (1 - params.peakDrawdownProtection / 100))}%，回撤${formatPercent(params.peakDrawdownProtection)}%（危险！）
      * 强烈建议：立即平仓或至少减仓50%
      * 例外情况：有明确证据表明只是正常回调（如测试均线支撑）
   
@@ -867,9 +871,9 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
    a) 止损决策（必须严格遵守，不可灵活）：
       - 重要：止损线是硬性规则，必须严格遵守，不像止盈可以灵活！
       - 检查 pnl_percent 是否触及策略止损线：
-        * ${params.leverageMin}-${Math.floor((params.leverageMin + params.leverageMax) / 2)}倍杠杆：止损线 ${params.stopLoss.low}%（必须遵守）
-        * ${Math.floor((params.leverageMin + params.leverageMax) / 2)}-${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}倍杠杆：止损线 ${params.stopLoss.mid}%（必须遵守）
-        * ${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}-${params.leverageMax}倍杠杆：止损线 ${params.stopLoss.high}%（必须遵守）
+        * ${params.leverageMin}-${Math.floor((params.leverageMin + params.leverageMax) / 2)}倍杠杆：止损线 ${formatPercent(params.stopLoss.low)}%（必须遵守）
+        * ${Math.floor((params.leverageMin + params.leverageMax) / 2)}-${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}倍杠杆：止损线 ${formatPercent(params.stopLoss.mid)}%（必须遵守）
+        * ${Math.ceil((params.leverageMin + params.leverageMax) * 0.75)}-${params.leverageMax}倍杠杆：止损线 ${formatPercent(params.stopLoss.high)}%（必须遵守）
       - 微调空间：仅可根据关键支撑位/阻力位微调±1%（不能更多）
       - 如果触及或突破止损线：
         * 立即调用 closePosition 平仓（不要犹豫，不要等待）
@@ -975,10 +979,10 @@ function generateInstructions(strategy: TradingStrategy, intervalMinutes: number
   * 单笔亏损 ≤ -30%：强制平仓
   * 持仓时间 ≥ 36小时：强制平仓
 - AI战术决策（专业建议，灵活执行）：
-  * 策略止损线：${params.stopLoss.low}% 到 ${params.stopLoss.high}%（强烈建议遵守）
-  * 移动止盈（${params.name}策略）：+${params.trailingStop.level1.trigger}%→+${params.trailingStop.level1.stopAt}%, +${params.trailingStop.level2.trigger}%→+${params.trailingStop.level2.stopAt}%, +${params.trailingStop.level3.trigger}%→+${params.trailingStop.level3.stopAt}%（保护利润）
-  * 分批止盈（${params.name}策略）：+${params.partialTakeProfit.stage1.trigger}%/+${params.partialTakeProfit.stage2.trigger}%/+${params.partialTakeProfit.stage3.trigger}%（使用 percentage 参数）
-  * 峰值回撤 ≥ ${params.peakDrawdownProtection}%：危险信号，强烈建议平仓
+  * 策略止损线：${formatPercent(params.stopLoss.low)}% 到 ${formatPercent(params.stopLoss.high)}%（强烈建议遵守）
+  * 移动止盈（${params.name}策略）：+${formatPercent(params.trailingStop.level1.trigger)}%→+${formatPercent(params.trailingStop.level1.stopAt)}%, +${formatPercent(params.trailingStop.level2.trigger)}%→+${formatPercent(params.trailingStop.level2.stopAt)}%, +${formatPercent(params.trailingStop.level3.trigger)}%→+${formatPercent(params.trailingStop.level3.stopAt)}%（保护利润）
+  * 分批止盈（${params.name}策略）：+${formatPercent(params.partialTakeProfit.stage1.trigger)}%/+${formatPercent(params.partialTakeProfit.stage2.trigger)}%/+${formatPercent(params.partialTakeProfit.stage3.trigger)}%（使用 percentage 参数）
+  * 峰值回撤 ≥ ${formatPercent(params.peakDrawdownProtection)}%：危险信号，强烈建议平仓
 
 仓位管理：
 - 严禁双向持仓：同一币种不能同时持有多单和空单
