@@ -432,10 +432,10 @@ class TradingMonitor {
             ]);
         }, 5000);
 
-        // 每10秒更新资产曲线图表
+        // 每5秒更新资产曲线图表
         setInterval(async () => {
             await this.updateEquityChart();
-        }, 10000);
+        }, 5000);
     }
 
     // 复制ticker内容实现无缝滚动
@@ -478,7 +478,7 @@ class TradingMonitor {
                 const message = document.createElement('div');
                 message.className = 'no-data';
                 message.style.cssText = 'position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #00cc88; text-align: center;';
-                message.innerHTML = '暂无历史数据<br><small style="color: #008866;">系统将每10分钟自动记录账户资产</small>';
+                message.innerHTML = '暂无历史数据<br><small style="color: #008866;">系统将每5秒自动记录账户资产</small>';
                 container.appendChild(message);
             }
             return;

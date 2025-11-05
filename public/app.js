@@ -34,7 +34,8 @@ document.addEventListener('DOMContentLoaded', () => {
         await Promise.all([
             loadLogsData(),
             loadTradesData(),
-            loadTradingStats()
+            loadTradingStats(),
+            updateEquityChart()
         ]);
     }, 5 * 1000); // 5秒 = 5000毫秒
 
