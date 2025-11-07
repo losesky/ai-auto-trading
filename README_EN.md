@@ -803,7 +803,7 @@ If you don't have a Gate.io account yet, we recommend registering through this r
 - **Referral Link**: [https://www.gatesite.org/signup/VQBEAwgL?ref_type=103](https://www.gatesite.org/signup/VQBEAwgL?ref_type=103)
 - **Invitation Code**: `VQBEAwgL`
 
-```bash
+```typemarkdown
 > By registering with the referral code, you'll receive trading commission rebates while helping maintain this open-source project's long-term operation. It benefits both you and the project, completely free with no extra costs.
 
 > **Tip**: Testnet and mainnet can use the same account. We recommend thorough testing on testnet before real trading.
