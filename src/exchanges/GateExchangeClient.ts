@@ -266,10 +266,21 @@ export class GateExchangeClient implements IExchangeClient {
       const absSize = Math.abs(params.size);
       const API_MAX_SIZE = 10000000;
       
+      // 🔧 精度处理：根据 orderSizeMin 确定数量精度
+      const minQty = contractInfo.orderSizeMin || 1;
+      const decimalPlaces = minQty >= 1 ? 0 : Math.abs(Math.floor(Math.log10(minQty)));
+      const multiplier = Math.pow(10, decimalPlaces);
+      
+      // 先对原始数量进行精度修正
+      const precisionCorrectedSize = Math.floor(absSize * multiplier) / multiplier;
+      
       // 检查最小数量限制
-      if (contractInfo.orderSizeMin && absSize < contractInfo.orderSizeMin) {
-        logger.warn(`订单数量 ${absSize} 小于最小限制 ${contractInfo.orderSizeMin}，调整为最小值`);
-        adjustedSize = params.size > 0 ? contractInfo.orderSizeMin : -contractInfo.orderSizeMin;
+      if (precisionCorrectedSize < minQty) {
+        logger.warn(`订单数量 ${precisionCorrectedSize.toFixed(decimalPlaces)} 小于最小限制 ${minQty}，调整为最小值`);
+        adjustedSize = params.size > 0 ? minQty : -minQty;
+      } else {
+        // 使用精度修正后的数量
+        adjustedSize = params.size > 0 ? precisionCorrectedSize : -precisionCorrectedSize;
       }
       
       // 检查最大数量限制
@@ -277,10 +288,12 @@ export class GateExchangeClient implements IExchangeClient {
         ? Math.min(contractInfo.orderSizeMax, API_MAX_SIZE)
         : API_MAX_SIZE;
         
-      if (absSize > maxSize) {
-        logger.warn(`订单数量 ${absSize} 超过最大限制 ${maxSize}，调整为最大值`);
+      if (Math.abs(adjustedSize) > maxSize) {
+        logger.warn(`订单数量 ${Math.abs(adjustedSize).toFixed(decimalPlaces)} 超过最大限制 ${maxSize}，调整为最大值`);
         adjustedSize = params.size > 0 ? maxSize : -maxSize;
       }
+      
+      logger.debug(`Gate.io 下单数量精度修正: 原始=${Math.abs(params.size).toFixed(8)} -> 修正=${Math.abs(adjustedSize).toFixed(decimalPlaces)} (精度=${decimalPlaces}位, minQty=${minQty})`);
 
       // 验证价格偏离
       let adjustedPrice = params.price;

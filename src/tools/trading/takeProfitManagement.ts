@@ -32,7 +32,10 @@ import { getExchangeClient } from "../../exchanges";
 import { createClient } from "@libsql/client";
 import { createLogger } from "../../utils/logger";
 import { getChinaTimeISO } from "../../utils/timeUtils";
-import { formatStopLossPrice } from "../../utils/priceFormatter";
+import { 
+  formatStopLossPrice, 
+  calculatePartialCloseQuantity 
+} from "../../utils/priceFormatter";
 import { calculateATR } from "../../services/stopLossCalculator";
 
 const logger = createLogger({
@@ -524,21 +527,46 @@ export const partialTakeProfitTool = createTool({
       }
       
       // 6. 执行平仓（阶段1和2）
-      const closeQuantity = (currentSize * closePercent) / 100;
-      const remainingQuantity = currentSize - closeQuantity;
-      
-      logger.info(`准备平仓: symbol=${symbol}, closePercent=${closePercent}%, closeQty=${closeQuantity}, remaining=${remainingQuantity}`);
-      
-      // 检查平仓数量是否满足最小交易数量要求
+      // 🔧 使用统一的数量精度处理函数
       const contractInfo = await exchangeClient.getContractInfo(contract);
-      if (closeQuantity < contractInfo.orderSizeMin) {
+      const minQty = contractInfo.orderSizeMin;
+      
+      const quantityResult = calculatePartialCloseQuantity(currentSize, closePercent, minQty);
+      
+      if (quantityResult.error) {
         return {
           success: false,
-          message: `分批平仓数量 ${closeQuantity.toFixed(4)} 小于最小交易数量 ${contractInfo.orderSizeMin}，无法执行。建议增加持仓规模或调整平仓比例。`,
+          message: quantityResult.error,
+        };
+      }
+      
+      const { closeQuantity, remainingQuantity, decimalPlaces, meetsMinQuantity, remainingMeetsMin } = quantityResult;
+      
+      logger.info(`准备平仓: symbol=${symbol}, closePercent=${closePercent}%, 持仓=${currentSize.toFixed(decimalPlaces)}, 平仓=${closeQuantity.toFixed(decimalPlaces)}, 剩余=${remainingQuantity.toFixed(decimalPlaces)}, 精度=${decimalPlaces}位`);
+      
+      // 检查平仓数量是否满足最小交易数量要求
+      if (!meetsMinQuantity) {
+        return {
+          success: false,
+          message: `分批平仓数量 ${closeQuantity.toFixed(decimalPlaces)} 小于最小交易数量 ${minQty}，无法执行。建议增加持仓规模或调整平仓比例。`,
           closeQuantity,
-          minQuantity: contractInfo.orderSizeMin,
+          minQuantity: minQty,
           currentSize,
           closePercent,
+          decimalPlaces,
+        };
+      }
+      
+      // 检查剩余数量是否满足最小持仓要求（如果不为0的话）
+      if (!remainingMeetsMin) {
+        logger.warn(`分批平仓后剩余数量 ${remainingQuantity.toFixed(decimalPlaces)} 小于最小交易数量 ${minQty}`);
+        return {
+          success: false,
+          message: `分批平仓后剩余数量 ${remainingQuantity.toFixed(decimalPlaces)} 小于最小交易数量 ${minQty}，建议调整平仓比例或全部平仓`,
+          closeQuantity,
+          remainingQuantity,
+          minQuantity: minQty,
+          suggestion: "建议全部平仓或增加持仓规模",
         };
       }
       
@@ -798,9 +826,22 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
         const currentSize = Math.abs(Number.parseFloat(position.size || "0"));
         const contract = exchangeClient.normalizeContract(symbol);
         const contractInfo = await exchangeClient.getContractInfo(contract);
+        
+        // 🔧 使用统一的数量精度处理函数
         const closePercent = 33.33;
-        const closeQuantity = (currentSize * closePercent) / 100;
-        const meetsMinQuantity = closeQuantity >= contractInfo.orderSizeMin;
+        const quantityResult = calculatePartialCloseQuantity(
+          currentSize, 
+          closePercent, 
+          contractInfo.orderSizeMin
+        );
+        
+        const { 
+          closeQuantity, 
+          remainingQuantity, 
+          decimalPlaces,
+          meetsMinQuantity, 
+          remainingMeetsMin 
+        } = quantityResult;
         
         if (currentR >= adjustedR3 && !executedStages.includes(3)) {
           canExecuteStages.push(3);
@@ -808,20 +849,24 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
         }
         
         if (currentR >= adjustedR2 && !executedStages.includes(2) && executedStages.includes(1)) {
-          if (meetsMinQuantity) {
+          if (meetsMinQuantity && remainingMeetsMin) {
             canExecuteStages.push(2);
             recommendation = `建议执行阶段2（${adjustedR2.toFixed(2)}R，${volatility.description}）`;
+          } else if (!meetsMinQuantity) {
+            recommendation = `达到阶段2条件但平仓数量 ${closeQuantity.toFixed(decimalPlaces)} 小于最小限制 ${contractInfo.orderSizeMin}，无法执行分批止盈`;
           } else {
-            recommendation = `达到阶段2条件但平仓数量 ${closeQuantity.toFixed(4)} 小于最小限制 ${contractInfo.orderSizeMin}，无法执行分批止盈`;
+            recommendation = `达到阶段2条件但剩余数量 ${remainingQuantity.toFixed(decimalPlaces)} 小于最小限制 ${contractInfo.orderSizeMin}，建议全部平仓`;
           }
         }
         
         if (currentR >= adjustedR1 && !executedStages.includes(1)) {
-          if (meetsMinQuantity) {
+          if (meetsMinQuantity && remainingMeetsMin) {
             canExecuteStages.push(1);
             recommendation = `建议执行阶段1（${adjustedR1.toFixed(2)}R，${volatility.description}）`;
+          } else if (!meetsMinQuantity) {
+            recommendation = `达到阶段1条件但平仓数量 ${closeQuantity.toFixed(decimalPlaces)} 小于最小限制 ${contractInfo.orderSizeMin}，无法执行分批止盈`;
           } else {
-            recommendation = `达到阶段1条件但平仓数量 ${closeQuantity.toFixed(4)} 小于最小限制 ${contractInfo.orderSizeMin}，无法执行分批止盈`;
+            recommendation = `达到阶段1条件但剩余数量 ${remainingQuantity.toFixed(decimalPlaces)} 小于最小限制 ${contractInfo.orderSizeMin}，建议全部平仓`;
           }
         }
         
@@ -842,9 +887,12 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
           stopLossPrice,
           side,
           currentSize,
-          closeQuantity: Number.parseFloat(closeQuantity.toFixed(4)),
+          closeQuantity: Number.parseFloat(closeQuantity.toFixed(decimalPlaces)),
+          remainingQuantity: Number.parseFloat(remainingQuantity.toFixed(decimalPlaces)),
           minQuantity: contractInfo.orderSizeMin,
           meetsMinQuantity,
+          remainingMeetsMin,
+          decimalPlaces,
           volatility: {
             level: volatility.level,
             atrPercent: volatility.atrPercent,

@@ -224,3 +224,122 @@ export function formatStopLossPrice(symbol: string, price: number): string {
   const decimals = getDecimalPlacesBySymbol(symbol, price);
   return formatPrice(price, decimals);
 }
+
+/**
+ * 根据最小交易数量计算精度（小数位数）
+ * 
+ * 例如：
+ * - minQty = 1 -> 0位小数（整数）
+ * - minQty = 0.1 -> 1位小数
+ * - minQty = 0.01 -> 2位小数
+ * - minQty = 0.001 -> 3位小数
+ * 
+ * @param minQty 最小交易数量
+ * @returns 小数位数
+ */
+export function getQuantityDecimalPlaces(minQty: number): number {
+  if (minQty >= 1) return 0;
+  return Math.abs(Math.floor(Math.log10(minQty)));
+}
+
+/**
+ * 根据合约最小交易数量修正数量精度
+ * 
+ * 核心功能：
+ * 1. 根据 minQty 确定精度（小数位数）
+ * 2. 向下取整到指定精度，确保不超过原始数量
+ * 3. 避免浮点数精度累积误差（如 956.8100000000001）
+ * 4. 确保修正后的数量符合交易所要求
+ * 
+ * @param quantity 原始数量
+ * @param minQty 合约最小交易数量
+ * @returns 修正后的数量
+ */
+export function adjustQuantityPrecision(quantity: number, minQty: number): number {
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    return 0;
+  }
+  
+  // 根据 minQty 确定小数位数
+  const decimalPlaces = getQuantityDecimalPlaces(minQty);
+  const multiplier = Math.pow(10, decimalPlaces);
+  
+  // 向下取整到指定精度（防止浮点数累积误差）
+  const adjusted = Math.floor(quantity * multiplier) / multiplier;
+  
+  return adjusted;
+}
+
+/**
+ * 计算分批平仓数量（带精度修正）
+ * 
+ * 功能：
+ * 1. 计算持仓的百分比数量
+ * 2. 自动应用精度修正
+ * 3. 验证是否满足最小交易数量
+ * 4. 验证剩余数量是否满足最小持仓要求
+ * 
+ * @param currentSize 当前持仓数量
+ * @param closePercent 平仓百分比（0-100）
+ * @param minQty 合约最小交易数量
+ * @returns 包含平仓数量、剩余数量、精度信息的对象
+ */
+export function calculatePartialCloseQuantity(
+  currentSize: number,
+  closePercent: number,
+  minQty: number
+): {
+  closeQuantity: number;
+  remainingQuantity: number;
+  decimalPlaces: number;
+  meetsMinQuantity: boolean;
+  remainingMeetsMin: boolean;
+  error?: string;
+} {
+  // 参数验证
+  if (!Number.isFinite(currentSize) || currentSize <= 0) {
+    return {
+      closeQuantity: 0,
+      remainingQuantity: 0,
+      decimalPlaces: 0,
+      meetsMinQuantity: false,
+      remainingMeetsMin: false,
+      error: "无效的持仓数量",
+    };
+  }
+  
+  if (!Number.isFinite(closePercent) || closePercent <= 0 || closePercent > 100) {
+    return {
+      closeQuantity: 0,
+      remainingQuantity: currentSize,
+      decimalPlaces: 0,
+      meetsMinQuantity: false,
+      remainingMeetsMin: true,
+      error: "无效的平仓百分比（必须在0-100之间）",
+    };
+  }
+  
+  // 计算精度
+  const decimalPlaces = getQuantityDecimalPlaces(minQty);
+  
+  // 计算原始平仓数量
+  const rawCloseQuantity = (currentSize * closePercent) / 100;
+  
+  // 应用精度修正
+  const closeQuantity = adjustQuantityPrecision(rawCloseQuantity, minQty);
+  
+  // 计算剩余数量
+  const remainingQuantity = adjustQuantityPrecision(currentSize - closeQuantity, minQty);
+  
+  // 验证最小数量要求
+  const meetsMinQuantity = closeQuantity >= minQty;
+  const remainingMeetsMin = remainingQuantity === 0 || remainingQuantity >= minQty;
+  
+  return {
+    closeQuantity,
+    remainingQuantity,
+    decimalPlaces,
+    meetsMinQuantity,
+    remainingMeetsMin,
+  };
+}

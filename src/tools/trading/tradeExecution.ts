@@ -28,6 +28,10 @@ import { createLogger } from "../../utils/logger";
 import { getChinaTimeISO } from "../../utils/timeUtils";
 import { RISK_PARAMS } from "../../config/riskParams";
 import { getQuantoMultiplier } from "../../utils/contractUtils";
+import { 
+  adjustQuantityPrecision, 
+  getQuantityDecimalPlaces 
+} from "../../utils/priceFormatter";
 import { formatStopLossPrice } from "../../utils/priceFormatter";
 
 const logger = createLogger({
@@ -858,15 +862,43 @@ export const closePositionTool = createTool({
       
       // 计算平仓数量
       const contractType = exchangeClient.getContractType();
+      const contractInfo = await exchangeClient.getContractInfo(contract);
+      const minQty = contractInfo.orderSizeMin;
+      
+      // 🔧 使用统一的精度处理函数
+      const decimalPlaces = getQuantityDecimalPlaces(minQty);
+      
       let closeSize: number;
       
       if (contractType === 'inverse') {
         // Gate.io: 张数必须是整数
         closeSize = Math.floor((quantity * percentage) / 100);
       } else {
-        // Binance: 支持小数
-        closeSize = (quantity * percentage) / 100;
+        // Binance: 支持小数，使用精度修正
+        const rawCloseSize = (quantity * percentage) / 100;
+        closeSize = adjustQuantityPrecision(rawCloseSize, minQty);
       }
+      
+      // 🔧 检查平仓数量是否满足最小交易数量要求
+      if (closeSize < minQty) {
+        // 如果是100%平仓，则使用全部数量
+        if (percentage === 100) {
+          closeSize = quantity;
+          logger.warn(`100%平仓但计算数量 ${closeSize.toFixed(decimalPlaces)} 小于最小限制 ${minQty}，使用持仓全部数量 ${quantity.toFixed(decimalPlaces)}`);
+        } else {
+          return {
+            success: false,
+            message: `平仓数量 ${closeSize.toFixed(decimalPlaces)} 小于最小交易数量 ${minQty}，无法执行。建议全部平仓或增加持仓规模。`,
+            closeSize,
+            minQuantity: minQty,
+            currentQuantity: quantity,
+            percentage,
+            decimalPlaces,
+          };
+        }
+      }
+      
+      logger.info(`准备平仓: symbol=${symbol}, percentage=${percentage}%, 持仓=${quantity.toFixed(decimalPlaces)}, 平仓=${closeSize.toFixed(decimalPlaces)}, 精度=${decimalPlaces}位`);
       
       const size = side === "long" ? -closeSize : closeSize;
       
