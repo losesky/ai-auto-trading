@@ -177,13 +177,22 @@ export async function performHealthCheck(): Promise<HealthCheckResult> {
     // ========== 检查项1: 孤儿条件单 ==========
     logger.debug('检查1: 孤儿条件单...');
     
-    const orphanOrders = await dbClient.execute(`
-      SELECT po.order_id, po.symbol, po.side, po.type
-      FROM price_orders po
-      LEFT JOIN positions p ON po.symbol = p.symbol AND po.side = p.side
-      WHERE po.status = 'active' 
-      AND p.symbol IS NULL
-    `);
+    // 🔧 关键修复: 增加时间容错机制，避免误判刚创建的条件单
+    // 对于60秒内创建的条件单，给予缓冲时间等待持仓记s'dsd  录同步
+    const graceTimeSeconds = 60;
+    const graceTimeISO = new Date(Date.now() - graceTimeSeconds * 1000).toISOString();
+    
+    const orphanOrders = await dbClient.execute({
+      sql: `
+        SELECT po.order_id, po.symbol, po.side, po.type, po.created_at
+        FROM price_orders po
+        LEFT JOIN positions p ON po.symbol = p.symbol AND po.side = p.side
+        WHERE po.status = 'active' 
+        AND p.symbol IS NULL
+        AND po.created_at < ?
+      `,
+      args: [graceTimeISO]
+    });
     
     if (orphanOrders.rows.length > 0) {
       details.orphanOrders = orphanOrders.rows.length;
@@ -192,6 +201,7 @@ export async function performHealthCheck(): Promise<HealthCheckResult> {
       
       // 自动修复: 标记为cancelled
       for (const order of orphanOrders.rows) {
+        logger.debug(`  清理孤儿单: ${order.symbol} ${order.side} ${order.type}, 创建时间: ${order.created_at}`);
         await dbClient.execute({
           sql: `UPDATE price_orders 
                 SET status = 'cancelled', updated_at = ?

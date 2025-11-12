@@ -631,6 +631,13 @@ IMPORTANT:
       let calculatedStopLoss: number | null = null;
       let calculatedTakeProfit: number | null = null;
       
+      // 🔧 关键修复: 先创建临时持仓记录，避免健康检查误判条件单为孤儿单
+      // 稍后会更新完整的持仓信息（包含强平价等）
+      logger.debug(`📝 预先创建持仓记录，避免条件单被误判为孤儿单...`);
+      const tempLiquidationPrice = side === "long" 
+        ? actualFillPrice * (1 - 0.9 / leverage)
+        : actualFillPrice * (1 + 0.9 / leverage);
+      
       if (RISK_PARAMS.ENABLE_SCIENTIFIC_STOP_LOSS && preCalculatedStopLoss) {
         try {
           logger.info(`📊 步骤3: 根据实际成交价格调整止损止盈...`);
@@ -716,30 +723,8 @@ IMPORTANT:
             
             logger.info(`✅ 止损止盈订单已设置 (止损单ID: ${slOrderId}, 止盈单ID: ${tpOrderId})`);
             
-            // 保存条件单到数据库（使用实际价格，并关联开仓订单ID）
-            try {
-              const now = new Date().toISOString();
-              const positionOrderId = order.id?.toString() || "";
-              
-              if (slOrderId) {
-                await dbClient.execute({
-                  sql: `INSERT INTO price_orders 
-                        (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at, position_order_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                  args: [slOrderId, symbol, side, 'stop_loss', actualStopLoss, 0, finalQuantity, 'active', now, positionOrderId]
-                });
-              }
-              if (tpOrderId) {
-                await dbClient.execute({
-                  sql: `INSERT INTO price_orders 
-                        (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at, position_order_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                  args: [tpOrderId, symbol, side, 'take_profit', actualTakeProfit, 0, finalQuantity, 'active', now, positionOrderId]
-                });
-              }
-            } catch (dbError: any) {
-              logger.warn(`⚠️  保存条件单到数据库失败: ${dbError.message}`);
-            }
+            // 🔧 关键修复: 先保存条件单ID，稍后与持仓一起写入数据库
+            // 这样可以确保持仓记录先写入，避免健康检查误判为孤儿单
           } else {
             logger.warn(`⚠️  设置止损止盈订单失败: ${setStopLossResult.message}`);
           }
@@ -798,43 +783,24 @@ IMPORTANT:
         logger.warn(`使用估算强平价: ${liquidationPrice}`);
       }
         
-      // 先检查是否已存在持仓
-      const existingResult = await dbClient.execute({
-        sql: "SELECT symbol FROM positions WHERE symbol = ?",
-        args: [symbol],
-      });
+      // 🔧 关键修复: 使用事务确保持仓记录和条件单记录的原子性写入
+      // 这样可以避免健康检查在中间时刻误判为孤儿单
+      logger.debug(`📝 开始事务: 插入持仓记录并保存条件单...`);
       
-      if (existingResult.rows.length > 0) {
-        // 更新现有持仓
+      const nowTimestamp = new Date().toISOString();
+      const positionOrderId = order.id?.toString() || "";
+      
+      // 开启事务
+      await dbClient.execute('BEGIN TRANSACTION');
+      
+      try {
+        // 1. 插入完整的持仓记录（包含条件单ID）
+        // 使用 INSERT OR REPLACE 确保即使持仓已存在也能更新
         await dbClient.execute({
-          sql: `UPDATE positions SET 
-                quantity = ?, entry_price = ?, current_price = ?, liquidation_price = ?, 
-                unrealized_pnl = ?, leverage = ?, side = ?, profit_target = ?, stop_loss = ?, 
-                tp_order_id = ?, sl_order_id = ?, entry_order_id = ?
-                WHERE symbol = ?`,
-          args: [
-            finalQuantity,
-            actualFillPrice,
-            actualFillPrice,
-            liquidationPrice,
-            0,
-            leverage,
-            side,
-            calculatedTakeProfit,
-            calculatedStopLoss,
-            tpOrderId || null,
-            slOrderId || null,
-            order.id?.toString() || "",
-            symbol,
-          ],
-        });
-      } else {
-        // 插入新持仓
-        await dbClient.execute({
-          sql: `INSERT INTO positions 
+          sql: `INSERT OR REPLACE INTO positions 
                 (symbol, quantity, entry_price, current_price, liquidation_price, unrealized_pnl, 
-                 leverage, side, profit_target, stop_loss, tp_order_id, sl_order_id, entry_order_id, opened_at,
-                 market_state, strategy_type, signal_strength, opportunity_score)
+                 leverage, side, entry_order_id, opened_at, profit_target, stop_loss, 
+                 tp_order_id, sl_order_id, market_state, strategy_type, signal_strength, opportunity_score)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             symbol,
@@ -845,18 +811,71 @@ IMPORTANT:
             0,
             leverage,
             side,
-            calculatedTakeProfit,
-            calculatedStopLoss,
+            positionOrderId,
+            nowTimestamp,
+            calculatedTakeProfit || null,
+            calculatedStopLoss || null,
             tpOrderId || null,
             slOrderId || null,
-            order.id?.toString() || "",
-            new Date().toISOString(), // 统一使用UTC ISO格式
             marketState || null,
             strategyType || null,
             signalStrength || null,
             opportunityScore || null,
           ],
         });
+        logger.debug(`✅ [事务] 步骤1: 持仓记录已插入`);
+        
+        // 2. 保存条件单记录到数据库
+        if (slOrderId) {
+          await dbClient.execute({
+            sql: `INSERT INTO price_orders 
+                  (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at, position_order_id)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            args: [slOrderId, symbol, side, 'stop_loss', calculatedStopLoss, 0, finalQuantity, 'active', nowTimestamp, positionOrderId]
+          });
+          logger.debug(`✅ [事务] 步骤2a: 止损单已保存: ${slOrderId}`);
+        }
+        
+        if (tpOrderId) {
+          await dbClient.execute({
+            sql: `INSERT INTO price_orders 
+                  (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at, position_order_id)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            args: [tpOrderId, symbol, side, 'take_profit', calculatedTakeProfit, 0, finalQuantity, 'active', nowTimestamp, positionOrderId]
+          });
+          logger.debug(`✅ [事务] 步骤2b: 止盈单已保存: ${tpOrderId}`);
+        }
+        
+        // 提交事务
+        await dbClient.execute('COMMIT');
+        logger.info(`✅ [事务] 持仓和条件单记录已原子性提交到数据库`);
+        
+      } catch (dbError: any) {
+        // 回滚事务
+        await dbClient.execute('ROLLBACK');
+        logger.error(`❌ [事务] 数据库操作失败，已回滚: ${dbError.message}`);
+        
+        // 记录不一致状态
+        try {
+          await dbClient.execute({
+            sql: `INSERT INTO inconsistent_states 
+                  (operation, symbol, side, exchange_success, db_success, error_message, created_at, resolved)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            args: [
+              'open_position_and_orders',
+              symbol,
+              side,
+              1, // 交易所操作成功（持仓和条件单已创建）
+              0, // 数据库操作失败
+              dbError.message,
+              nowTimestamp,
+              0
+            ]
+          });
+          logger.warn(`⚠️  已记录不一致状态，等待系统自动修复`);
+        } catch (e) {
+          logger.error('记录不一致状态失败:', e);
+        }
       }
       
       // 🔧 计算合约数量和总价值
