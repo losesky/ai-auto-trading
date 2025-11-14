@@ -30,7 +30,8 @@ import { RISK_PARAMS } from "../../config/riskParams";
 import { getQuantoMultiplier } from "../../utils/contractUtils";
 import { 
   adjustQuantityPrecision, 
-  getQuantityDecimalPlaces 
+  getQuantityDecimalPlaces,
+  formatPriceNumber 
 } from "../../utils/priceFormatter";
 import { formatStopLossPrice } from "../../utils/priceFormatter";
 import { positionStateManager } from "../../utils/positionStateManager";
@@ -647,9 +648,9 @@ IMPORTANT:
             logger.info(`实际成交价 ${actualFillPrice.toFixed(2)} 偏离计划价 ${currentPrice.toFixed(2)}，调整止损位...`);
             
             // 按相同的距离百分比计算新的止损价格
-            calculatedStopLoss = side === "long"
+            calculatedStopLoss = formatPriceNumber(side === "long"
               ? actualFillPrice * (1 - stopLossDistancePercent / 100)
-              : actualFillPrice * (1 + stopLossDistancePercent / 100);
+              : actualFillPrice * (1 + stopLossDistancePercent / 100));
           } else {
             // 成交价格基本符合预期，使用预计算的止损位
             calculatedStopLoss = preCalculatedStopLoss;
@@ -661,9 +662,9 @@ IMPORTANT:
           // 获取策略配置的极端止盈倍数
           const extremeRMultiple = strategyParams.partialTakeProfit?.extremeTakeProfit?.rMultiple || 5;
           
-          calculatedTakeProfit = side === "long"
+          calculatedTakeProfit = formatPriceNumber(side === "long"
             ? actualFillPrice + stopLossDistance * extremeRMultiple
-            : actualFillPrice - stopLossDistance * extremeRMultiple;
+            : actualFillPrice - stopLossDistance * extremeRMultiple);
           
           // 提取币种符号用于价格格式化
           const symbolName = symbol.replace(/_USDT$/, '').replace(/USDT$/, '');

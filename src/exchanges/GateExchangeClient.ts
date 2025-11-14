@@ -92,8 +92,15 @@ export class GateExchangeClient implements IExchangeClient {
     if (symbol.includes('_USDT')) {
       return symbol;
     }
-    // 否则添加 _USDT 后缀
-    return `${symbol}_USDT`;
+    
+    // 处理斜杠格式：BTC/USDT -> BTC_USDT
+    if (symbol.includes('/')) {
+      return symbol.replace('/', '_');
+    }
+    
+    // 处理其他格式：移除 USDT 后缀再添加 _USDT
+    const cleanSymbol = symbol.replace(/USDT$/, '');
+    return `${cleanSymbol}_USDT`;
   }
 
   extractSymbol(contract: string): string {
@@ -400,8 +407,10 @@ export class GateExchangeClient implements IExchangeClient {
         await new Promise(resolve => setTimeout(resolve, 1000)); // 等待1秒确保成交
         
         // 查询最近的成交记录获取实际成交价
+        // 传入当前时间减去10秒，只查询最近的交易
+        const recentTime = Date.now() - 10000;
         try {
-          const trades = await this.getMyTrades(params.contract, 20);
+          const trades = await this.getMyTrades(params.contract, 20, recentTime);
           logger.debug(`查询到 ${trades.length} 条成交记录，订单ID: ${orderResult.id}`);
           
           // 尝试通过order_id或时间匹配
@@ -557,11 +566,16 @@ export class GateExchangeClient implements IExchangeClient {
     }
   }
 
-  async getMyTrades(contract?: string, limit: number = 100): Promise<TradeRecord[]> {
+  async getMyTrades(contract?: string, limit: number = 100, startTime?: number): Promise<TradeRecord[]> {
     try {
       const opts: any = { limit };
       if (contract) {
         opts.contract = contract;
+      }
+      
+      // Gate.io API支持from参数（秒级时间戳）用于过滤时间
+      if (startTime) {
+        opts.from = Math.floor(startTime / 1000); // 转换为秒
       }
       
       // Gate.io API: getMyTrades - 获取我的历史成交记录

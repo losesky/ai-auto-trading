@@ -91,15 +91,39 @@ async function main() {
   // 7. 启动条件单监控服务
   const monitorEnabled = process.env.PRICE_ORDER_MONITOR_ENABLED !== 'false';
   if (monitorEnabled) {
-    logger.info("启动条件单监控服务...");
-    const dbClient = createClient({
-      url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
-      syncUrl: process.env.DATABASE_SYNC_URL,
-      syncInterval: 1000, // 每秒同步一次
-    });
-    const exchangeClient = getExchangeClient();
-    priceOrderMonitor = new PriceOrderMonitor(dbClient, exchangeClient);
-    await priceOrderMonitor.start();
+    try {
+      logger.info("启动条件单监控服务...");
+      const dbClient = createClient({
+        url: process.env.DATABASE_URL || "file:./.voltagent/trading.db",
+        syncUrl: process.env.DATABASE_SYNC_URL,
+        syncInterval: Number.parseInt(process.env.DATABASE_SYNC_INTERVAL || '5000'), // 默认5秒同步
+      });
+      const exchangeClient = getExchangeClient();
+      
+      // 验证交易所连接
+      try {
+        await exchangeClient.getFuturesAccount();
+        logger.info("✅ 交易所连接验证成功");
+      } catch (error: any) {
+        logger.warn("⚠️ 交易所连接验证失败,条件单监控可能受影响:", error.message);
+      }
+      
+      priceOrderMonitor = new PriceOrderMonitor(dbClient, exchangeClient);
+      await priceOrderMonitor.start();
+      
+      // 验证启动状态
+      const activeOrders = await dbClient.execute({
+        sql: 'SELECT COUNT(*) as count FROM price_orders WHERE status = ?',
+        args: ['active']
+      });
+      const activeCount = Number(activeOrders.rows[0]?.count || 0);
+      logger.info(`✅ 条件单监控服务启动成功,当前监控 ${activeCount} 个活跃条件单`);
+    } catch (error: any) {
+      logger.error("❌ 条件单监控服务启动失败:", error.message);
+      logger.warn("⚠️ 系统将继续运行,但条件单监控功能不可用");
+      logger.warn("⚠️ 建议检查: 1) 数据库连接 2) 交易所API配置 3) 网络连接");
+      // 不抛出异常,允许系统继续运行
+    }
   } else {
     logger.info("条件单监控服务已禁用（PRICE_ORDER_MONITOR_ENABLED=false）");
   }

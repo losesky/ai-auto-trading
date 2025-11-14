@@ -54,6 +54,7 @@ async function resetDatabase() {
     await client.execute("DROP TABLE IF EXISTS position_close_events");
     await client.execute("DROP TABLE IF EXISTS partial_take_profit_history");
     await client.execute("DROP TABLE IF EXISTS system_config");
+    await client.execute("DROP TABLE IF EXISTS inconsistent_states");
     logger.info("✅ 现有表已删除");
 
     // 重新创建表

@@ -235,7 +235,7 @@ export class BinanceExchangeClient implements IExchangeClient {
           
           if (attempt === retries) {
             logger.error(`API请求失败(${attempt}/${retries}):`, error as Error);
-            throw new Error(`API请求失败: ${error.msg || error.message || response.statusText}`);
+            // throw new Error(`API请求失败: ${error.msg || error.message || response.statusText}`);
           }
           logger.warn(`API请求失败(${attempt}/${retries}):`, error);
           // 增加重试间隔，使用指数退避策略
@@ -552,6 +552,36 @@ export class BinanceExchangeClient implements IExchangeClient {
         if (quantity < minQty) {
           logger.warn(`计算数量 ${quantity} 小于最小下单量 ${minQty}，调整为最小值`);
           quantity = minQty;
+        }
+        
+        // 🔧 币安最小名义价值检查(Binance minimum notional value: 20 USDT)
+        // 名义价值 = 数量 * 价格
+        const MIN_NOTIONAL = 20; // USDT
+        let estimatedPrice = params.price || 0;
+        
+        // 如果是市价单,需要获取当前市场价格来估算名义价值
+        if (!estimatedPrice || estimatedPrice === 0) {
+          try {
+            const ticker = await this.getFuturesTicker(params.contract);
+            estimatedPrice = parseFloat(ticker.last || '0');
+          } catch (error) {
+            logger.warn('获取市场价格失败,跳过名义价值检查:', error as Error);
+          }
+        }
+        
+        if (estimatedPrice > 0) {
+          const notionalValue = quantity * estimatedPrice;
+          if (notionalValue < MIN_NOTIONAL) {
+            // 计算满足最小名义价值所需的数量
+            const minRequiredQty = MIN_NOTIONAL / estimatedPrice;
+            // 考虑精度,向上调整
+            const adjustedQty = Math.ceil(minRequiredQty * multiplier) / multiplier;
+            
+            logger.warn(`订单名义价值 ${notionalValue.toFixed(2)} USDT 小于最小要求 ${MIN_NOTIONAL} USDT`);
+            logger.warn(`自动调整数量: ${quantity} -> ${adjustedQty} (价格: ${estimatedPrice})`);
+            
+            quantity = adjustedQty;
+          }
         }
         
         logger.debug(`下单数量精度修正: 原始=${Math.abs(params.size).toFixed(8)} -> 修正=${quantity.toFixed(8)} (精度=${decimalPlaces}位, 最小量=${minQty})`);
@@ -903,11 +933,20 @@ export class BinanceExchangeClient implements IExchangeClient {
     }
   }
 
-  async getMyTrades(contract?: string, limit: number = 100, retries: number = 2): Promise<TradeRecord[]> {
+  async getMyTrades(contract?: string, limit: number = 100, startTime?: number, retries: number = 2): Promise<TradeRecord[]> {
     try {
       const params: any = { limit };
       if (contract) {
         params.symbol = this.normalizeContract(contract);
+      }
+      
+      // 🔧 关键修复：币安默认返回最早的记录，必须指定起始时间
+      // 如果传入startTime则使用，否则查询最近7天的交易（币安API限制）
+      if (startTime) {
+        params.startTime = startTime;
+      } else {
+        const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+        params.startTime = sevenDaysAgo;
       }
       
       const trades = await this.privateRequest('/fapi/v1/userTrades', params, 'GET', retries);

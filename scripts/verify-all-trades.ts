@@ -3,6 +3,7 @@
  */
 import { createClient } from "@libsql/client";
 import { createLogger } from "../src/utils/logger";
+import { getQuantoMultiplier } from "../src/utils/contractUtils";
 
 const logger = createLogger({
   name: "verify-trades",
@@ -12,17 +13,6 @@ const logger = createLogger({
 const dbClient = createClient({
   url: "file:./.voltagent/trading.db",
 });
-
-// 合约乘数配置
-const MULTIPLIERS: Record<string, number> = {
-  'BTC': 0.0001,
-  'ETH': 0.01,
-  'SOL': 1,
-  'XRP': 10,
-  'BNB': 0.001,  // 已修复
-  'BCH': 0.01,
-  'DOGE': 100,
-};
 
 async function verifyAllTrades() {
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -62,13 +52,15 @@ async function verifyAllTrades() {
       console.log(`\n📌 ${symbol}:`);
       console.log(`   总交易: ${trades.length} 条`);
       
-      const multiplier = MULTIPLIERS[symbol];
-      if (!multiplier) {
-        console.log(`   ⚠️  未配置合约乘数，跳过验证\n`);
+      // 使用系统工具获取合约乘数
+      let multiplier: number;
+      try {
+        multiplier = await getQuantoMultiplier(symbol, true);
+        console.log(`   合约乘数: ${multiplier}\n`);
+      } catch (error: any) {
+        console.log(`   ⚠️  获取合约乘数失败: ${error.message}，跳过验证\n`);
         continue;
       }
-      
-      console.log(`   合约乘数: ${multiplier}\n`);
 
       const openTrades = trades.filter((t: any) => t.type === "open");
       const closeTrades = trades.filter((t: any) => t.type === "close");

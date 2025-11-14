@@ -217,8 +217,9 @@ export interface IExchangeClient {
    * 获取交易历史
    * @param contract 合约名称（可选）
    * @param limit 返回数量
+   * @param startTime 起始时间戳（毫秒），用于过滤指定时间后的交易
    */
-  getMyTrades(contract?: string, limit?: number): Promise<TradeRecord[]>;
+  getMyTrades(contract?: string, limit?: number, startTime?: number): Promise<TradeRecord[]>;
 
   /**
    * 标准化合约名称（转换为交易所格式）

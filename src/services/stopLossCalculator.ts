@@ -30,7 +30,7 @@
 
 import { createLogger } from "../utils/logger";
 import { getExchangeClient } from "../exchanges";
-import { formatStopLossPrice } from "../utils/priceFormatter";
+import { formatStopLossPrice, formatPriceNumber } from "../utils/priceFormatter";
 
 const logger = createLogger({
   name: "stop-loss-calculator",
@@ -305,7 +305,7 @@ export async function calculateScientificStopLoss(
       supportLevel = findSupportLevel(candles, config.lookbackPeriod);
       // 止损设在支撑位下方一个缓冲区
       const buffer = supportLevel * (config.bufferPercent / 100);
-      srStopPrice = supportLevel - buffer;
+      srStopPrice = formatPriceNumber(supportLevel - buffer);
       
       // 验证：多单的支撑位止损必须小于入场价
       if (srStopPrice >= entryPrice) {
@@ -316,7 +316,7 @@ export async function calculateScientificStopLoss(
       resistanceLevel = findResistanceLevel(candles, config.lookbackPeriod);
       // 止损设在阻力位上方一个缓冲区
       const buffer = resistanceLevel * (config.bufferPercent / 100);
-      srStopPrice = resistanceLevel + buffer;
+      srStopPrice = formatPriceNumber(resistanceLevel + buffer);
       
       // 验证：空单的阻力位止损必须大于入场价
       if (srStopPrice <= entryPrice) {
@@ -357,7 +357,7 @@ export async function calculateScientificStopLoss(
     // 如果 ATR 止损也有问题，则使用最小止损距离
     if (finalStopPrice >= entryPrice) {
       const minDistance = config.minStopLossPercent / 100;
-      finalStopPrice = entryPrice * (1 - minDistance);
+      finalStopPrice = formatPriceNumber(entryPrice * (1 - minDistance));
       logger.error(`❌ ATR止损也异常，使用最小止损距离 ${config.minStopLossPercent}%`);
     }
   } else if (side === "short" && finalStopPrice <= entryPrice) {
@@ -368,7 +368,7 @@ export async function calculateScientificStopLoss(
     // 如果 ATR 止损也有问题，则使用最小止损距离
     if (finalStopPrice <= entryPrice) {
       const minDistance = config.minStopLossPercent / 100;
-      finalStopPrice = entryPrice * (1 + minDistance);
+      finalStopPrice = formatPriceNumber(entryPrice * (1 + minDistance));
       logger.error(`❌ ATR止损也异常，使用最小止损距离 ${config.minStopLossPercent}%`);
     }
   }

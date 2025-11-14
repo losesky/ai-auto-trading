@@ -4,7 +4,11 @@
  * 
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
+ * the Free Software Found      const checkContract = this.exchangeClient.normalizeContract(order.symbol);
+      const positions = await this.exchangeClient.getPositions();
+      const positionExists = positions.some(p => 
+        p.contract === checkContract && Math.abs(parseFloat(p.size || '0')) > 0
+      );, either version 3 of the License, or
  * (at your option) any later version.
  * 
  * This program is distributed in the hope that it will be useful,
@@ -121,7 +125,7 @@ export class PriceOrderMonitor {
         return;
       }
 
-      logger.debug(`检测 ${activeOrders.length} 个活跃条件单`);
+      logger.debug(`检测本地端 ${activeOrders.length} 个活跃条件单`);
 
       // 2. 获取交易所的条件单
       let exchangeOrders: any[] = [];
@@ -132,7 +136,17 @@ export class PriceOrderMonitor {
         return;
       }
       
-      const exchangeOrderMap = new Map(exchangeOrders.map(o => [o.id?.toString() || o.orderId?.toString() || o.order_id?.toString(), o]));
+      // 构建交易所订单映射表，统一使用 id 字段作为 key
+      // Gate.io API返回的对象格式: { id: number, ... }
+      // Binance API返回的对象格式可能不同，需要兼容
+      const exchangeOrderMap = new Map<string, any>(
+        exchangeOrders
+          .map(o => {
+            const orderId = (o.id || o.orderId || o.order_id)?.toString();
+            return [orderId, o] as [string, any];
+          })
+          .filter(([id]) => id) // 过滤掉没有ID的订单
+      );
 
       // 3. 同时获取交易所实际持仓状态（关键补充）
       let exchangePositions: any[] = [];
@@ -153,8 +167,60 @@ export class PriceOrderMonitor {
       for (const dbOrder of activeOrders) {
         try {
           const contract = this.exchangeClient.normalizeContract(dbOrder.symbol);
-          const orderInExchange = exchangeOrderMap.has(dbOrder.order_id);
+          let orderInExchange = exchangeOrderMap.has(dbOrder.order_id);
           const positionInExchange = exchangePositionMap.has(contract);
+          
+          // 🔧 智能修复：如果数据库中的条件单ID在交易所不存在，
+          // 但交易所有该合约的条件单，尝试同步更新数据库ID
+          if (!orderInExchange && positionInExchange) {
+            // 查找交易所中该合约的条件单
+            const exchangeContractOrders = exchangeOrders.filter((o: any) => {
+              const oContract = this.exchangeClient.normalizeContract(o.contract || o.symbol || '');
+              return oContract === contract;
+            });
+            
+            // 尝试根据类型匹配（stop_loss 或 take_profit）
+            const matchingOrder = exchangeContractOrders.find((o: any) => {
+              // Gate.io: rule=1表示>=触发(多单止盈/空单止损), rule=2表示<=触发(多单止损/空单止盈)
+              // 从trigger规则推断订单类型
+              if (o.trigger && o.trigger.rule !== undefined) {
+                const isSellOrder = o.initial && parseFloat(o.initial.size || '0') < 0;
+                const isLongPosition = dbOrder.side === 'long';
+                
+                if (dbOrder.type === 'stop_loss') {
+                  // 止损: 多单用rule=2(<=), 空单用rule=1(>=)
+                  return isLongPosition ? o.trigger.rule === 2 : o.trigger.rule === 1;
+                } else if (dbOrder.type === 'take_profit') {
+                  // 止盈: 多单用rule=1(>=), 空单用rule=2(<=)
+                  return isLongPosition ? o.trigger.rule === 1 : o.trigger.rule === 2;
+                }
+              }
+              return false;
+            });
+            
+            if (matchingOrder) {
+              const newOrderId = (matchingOrder.id || matchingOrder.orderId || matchingOrder.order_id)?.toString();
+              if (newOrderId && newOrderId !== dbOrder.order_id) {
+                logger.info(`🔄 检测到条件单ID不匹配，自动同步: ${dbOrder.order_id} → ${newOrderId}`);
+                
+                // 更新数据库中的条件单ID
+                try {
+                  await this.dbClient.execute({
+                    sql: 'UPDATE price_orders SET order_id = ?, updated_at = ? WHERE order_id = ?',
+                    args: [newOrderId, new Date().toISOString(), dbOrder.order_id]
+                  });
+                  
+                  // 更新本地对象
+                  dbOrder.order_id = newOrderId;
+                  orderInExchange = true; // 现在在交易所中了
+                  
+                  logger.info(`✅ 条件单ID已同步更新到数据库`);
+                } catch (updateError: any) {
+                  logger.error(`❌ 更新条件单ID失败: ${updateError.message}`);
+                }
+              }
+            }
+          }
           
           // 判断条件单是否触发的逻辑：
           // 1. 订单不在交易所 + 持仓不存在 = 确定触发
@@ -203,7 +269,7 @@ export class PriceOrderMonitor {
 
     return result.rows.map(row => ({
       id: row.id as number,
-      order_id: row.order_id as string,
+      order_id: String(row.order_id), // 确保 order_id 是字符串
       symbol: row.symbol as string,
       side: row.side as 'long' | 'short',
       type: row.type as 'stop_loss' | 'take_profit',
@@ -218,6 +284,69 @@ export class PriceOrderMonitor {
    */
   private async handleTriggeredOrder(order: DBPriceOrder) {
     logger.debug(`🔍 检查条件单: ${order.symbol} ${order.type} ${order.order_id}`);
+
+    // 🔧 关键优化：先快速查找平仓交易，判断价格是否匹配此条件单
+    // 这样可以避免在多个条件单都active时，误判到底哪个触发了
+    const checkContract = this.exchangeClient.normalizeContract(order.symbol);
+    const orderCreateTime = new Date(order.created_at).getTime();
+    const timeToleranceMs = 5000;
+    const searchStartTime = orderCreateTime - timeToleranceMs;
+    
+    try {
+      // 先获取最近的平仓交易（轻量查询，只取100条）
+      const recentTrades = await this.exchangeClient.getMyTrades(checkContract, 100, searchStartTime);
+      
+      // 筛选出平仓方向的交易
+      const closeTrades = recentTrades.filter(t => {
+        const tradeTime = t.timestamp || t.create_time || 0;
+        if (tradeTime < searchStartTime) return false;
+        
+        const tradeSize = typeof t.size === 'number' ? t.size : parseFloat(t.size || '0');
+        return (order.side === 'long' && tradeSize < 0) || (order.side === 'short' && tradeSize > 0);
+      });
+      
+      // 如果有平仓交易，检查价格是否匹配此条件单
+      if (closeTrades.length > 0) {
+        const latestCloseTrade = closeTrades.reduce((latest, current) => {
+          const currentTime = current.timestamp || current.create_time || 0;
+          const latestTime = latest.timestamp || latest.create_time || 0;
+          return currentTime > latestTime ? current : latest;
+        });
+        
+        const tradePrice = parseFloat(latestCloseTrade.price);
+        const triggerPrice = parseFloat(order.trigger_price);
+        const priceTolerancePercent = 0.2; // 0.2% 价格容差
+        const priceTolerance = triggerPrice * (priceTolerancePercent / 100);
+        
+        let priceMatches = false;
+        
+        if (order.type === 'stop_loss') {
+          // 止损：多单价格应该低于或接近触发价，空单价格应该高于或接近触发价
+          if (order.side === 'long') {
+            priceMatches = tradePrice <= triggerPrice + priceTolerance;
+          } else {
+            priceMatches = tradePrice >= triggerPrice - priceTolerance;
+          }
+        } else {
+          // 止盈：多单价格应该高于或接近触发价，空单价格应该低于或接近触发价
+          if (order.side === 'long') {
+            priceMatches = tradePrice >= triggerPrice - priceTolerance;
+          } else {
+            priceMatches = tradePrice <= triggerPrice + priceTolerance;
+          }
+        }
+        
+        // 如果价格不匹配，说明不是这个条件单触发的，跳过
+        if (!priceMatches) {
+          logger.debug(`⏭️ ${order.symbol} ${order.type} 价格不匹配，跳过: 平仓价=${tradePrice}, 触发价=${triggerPrice}, 类型=${order.type}, 方向=${order.side}`);
+          return;
+        }
+        
+        logger.debug(`✅ ${order.symbol} ${order.type} 价格匹配: 平仓价=${tradePrice}, 触发价=${triggerPrice}`);
+      }
+    } catch (error: any) {
+      logger.warn(`价格预检查失败，继续执行: ${error.message}`);
+    }
 
     // 阶段1: 查询持仓信息（用于计算PnL）- 提前查询，避免后面找不到
     let position = await this.getPositionInfo(order.symbol, order.side);
@@ -242,54 +371,82 @@ export class PriceOrderMonitor {
     // 阶段2: 查找平仓交易（从交易所查询实际的成交记录）
     const closeTrade = await this.findCloseTrade(order);
     
-    // ⚠️ 关键修复：如果交易所没有平仓记录，说明条件单并未真正触发
-    //    可能的原因：
-    //    a) 条件单被手动取消
-    //    b) 持仓已通过其他方式平仓（手动平仓、其他条件单触发）
-    //    c) 系统异常导致状态不一致
-    //    
-    //    正确的处理方式：标记为cancelled，不创建虚假的平仓记录
+    // ⚠️ 关键修复：如果交易所没有平仓记录，需要判断是真的触发还是被取消
+    //    判断依据：检查交易所持仓是否还存在
     if (!closeTrade) {
-      logger.warn(`⚠️ 未找到 ${order.symbol} 的平仓交易记录，条件单可能被取消或持仓已通过其他方式平仓`);
+      logger.warn(`⚠️ 未找到 ${order.symbol} 的平仓交易记录，检查交易所持仓状态...`);
       
-      // 开启事务处理状态更新
-      await this.dbClient.execute('BEGIN TRANSACTION');
+      // 检查持仓是否还存在
+      const checkContract = this.exchangeClient.normalizeContract(order.symbol);
+      const positions = await this.exchangeClient.getPositions();
+      const positionExists = positions.some(p => 
+        p.contract === checkContract && Math.abs(parseFloat(p.size || '0')) > 0
+      );
       
-      try {
-        // 只更新条件单状态为cancelled
-        await this.updateOrderStatus(order.order_id, 'cancelled');
-        logger.debug('✅ [事务] 步骤1: 条件单状态已更新为cancelled');
+      if (positionExists) {
+        // 持仓还在，说明条件单只是被取消了，不是触发
+        logger.info(`${order.symbol} 持仓仍存在，条件单可能被手动取消`);
         
-        // 取消反向条件单（数据库内操作）
-        await this.cancelOppositeOrderInDB(order);
-        logger.debug('✅ [事务] 步骤2: 反向条件单已取消');
-        
-        // 检查持仓是否还存在
-        const contract = this.exchangeClient.normalizeContract(order.symbol);
-        const positions = await this.exchangeClient.getPositions();
-        const positionExists = positions.some(p => 
-          p.contract === contract && Math.abs(parseFloat(p.size || '0')) > 0
-        );
-        
-        if (!positionExists) {
-          // 持仓确实不存在了，从数据库中删除
-          await this.dbClient.execute({
-            sql: 'DELETE FROM positions WHERE symbol = ? AND side = ?',
-            args: [order.symbol, order.side]
-          });
-          logger.debug('✅ [事务] 步骤3: 持仓记录已删除');
-        } else {
-          logger.info(`${order.symbol} 持仓仍存在，保留数据库记录`);
+        await this.dbClient.execute('BEGIN TRANSACTION');
+        try {
+          await this.updateOrderStatus(order.order_id, 'cancelled');
+          await this.dbClient.execute('COMMIT');
+          logger.info(`✅ 条件单状态已更新为cancelled`);
+        } catch (error: any) {
+          await this.dbClient.execute('ROLLBACK');
+          logger.error('❌ 更新条件单状态失败，已回滚:', error);
         }
+        return;
+      }
+      
+      // 🚨 严重错误：持仓不存在但未找到平仓交易记录
+      // 这说明系统存在严重问题，不应该用估算数据掩盖
+      logger.error(`🚨 严重错误: ${order.symbol} 条件单触发但未找到成交记录`);
+      logger.error(`   - 条件单ID: ${order.order_id}`);
+      logger.error(`   - 类型: ${order.type}`);
+      logger.error(`   - 触发价: ${order.trigger_price}`);
+      logger.error(`   - 创建时间: ${order.created_at}`);
+      
+      // 记录不一致状态到数据库，供后续人工排查
+      const timestamp = new Date().toISOString();
+      
+      await this.dbClient.execute('BEGIN TRANSACTION');
+      try {
+        // 更新条件单状态为triggered（但标注为异常）
+        await this.updateOrderStatus(order.order_id, 'triggered');
+        await this.cancelOppositeOrderInDB(order);
         
-        // 提交事务
+        // 删除持仓记录（持仓已在交易所不存在）
+        await this.dbClient.execute({
+          sql: 'DELETE FROM positions WHERE symbol = ? AND side = ?',
+          args: [order.symbol, order.side]
+        });
+        
+        // 记录到不一致状态表
+        await this.dbClient.execute({
+          sql: `INSERT INTO inconsistent_states 
+                (operation, symbol, side, exchange_success, db_success, 
+                 exchange_order_id, error_message, created_at, resolved)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            'price_order_triggered_no_trade',
+            order.symbol,
+            order.side,
+            1,  // 交易所端已平仓（持仓不存在）
+            0,  // 数据库无法完整记录（找不到成交数据）
+            order.order_id,
+            `条件单${order.type}触发，但未找到成交记录。触发价=${order.trigger_price}, 创建时间=${order.created_at}。请检查交易所API或扩大查询时间窗口。`,
+            timestamp,
+            0
+          ]
+        });
+        
         await this.dbClient.execute('COMMIT');
-        logger.info(`✅ [事务] ${order.symbol} 条件单状态更新完成`);
+        logger.error(`❌ 已记录不一致状态，请人工排查！`);
         
       } catch (error: any) {
-        // 回滚事务
         await this.dbClient.execute('ROLLBACK');
-        logger.error('❌ [事务] 更新条件单状态失败，已回滚:', error);
+        logger.error('❌ 记录不一致状态失败:', error);
       }
       
       return;
@@ -399,6 +556,11 @@ export class PriceOrderMonitor {
         ? 'stop_loss_triggered' 
         : 'take_profit_triggered';
       
+      // 🔧 修复: order_id 统一存储实际平仓成交的订单ID，与 trades 表保持一致
+      // trade.id: Gate.io的成交ID (短ID)，用于存储到 trades.order_id
+      // order.order_id: 条件单ID，用于存储到 trigger_order_id
+      const closeOrderId = trade.id || order.order_id; // 优先使用成交ID，与trades表保持一致
+      
       await this.dbClient.execute({
         sql: `INSERT INTO position_close_events 
               (symbol, side, close_reason, trigger_type, trigger_price, close_price, 
@@ -409,7 +571,7 @@ export class PriceOrderMonitor {
           order.symbol, order.side, closeReason, 'exchange_order',
           parseFloat(order.trigger_price), exitPrice, entryPrice,
           quantity, leverage, netPnl, pnlPercent, totalFee,
-          order.order_id, trade.id, order.order_id, timestamp, 0
+          order.order_id, trade.id, closeOrderId, timestamp, 0
         ]
       });
       logger.debug('✅ [事务] 步骤5: 平仓事件已记录');
@@ -450,7 +612,7 @@ export class PriceOrderMonitor {
   }
 
   /**
-   * 数据库内取消反向条件单 (不调用交易所API)
+   * 取消反向条件单 (同时更新交易所和数据库)
    */
   private async cancelOppositeOrderInDB(triggeredOrder: DBPriceOrder) {
     const oppositeType = triggeredOrder.type === 'stop_loss' ? 'take_profit' : 'stop_loss';
@@ -464,6 +626,42 @@ export class PriceOrderMonitor {
     
     if (result.rows.length > 0) {
       const oppositeOrderId = result.rows[0].order_id as string;
+      
+      // 先尝试在交易所端取消（兼容币安和Gate.io）
+      try {
+        const contract = this.exchangeClient.normalizeContract(triggeredOrder.symbol);
+        
+        // 检查交易所类型并调用对应的取消方法
+        const exchangeName = process.env.EXCHANGE_NAME?.toLowerCase() || 'gate';
+        
+        if (exchangeName === 'gate') {
+          // Gate.io: 使用单个订单取消API
+          const gateClient = this.exchangeClient as any;
+          if (gateClient.futuresApi && typeof gateClient.futuresApi.cancelPriceTriggeredOrder === 'function') {
+            await gateClient.futuresApi.cancelPriceTriggeredOrder(
+              gateClient.settle,
+              oppositeOrderId
+            );
+            logger.debug(`✅ 已在Gate.io交易所取消反向条件单: ${oppositeOrderId}`);
+          }
+        } else if (exchangeName === 'binance') {
+          // Binance: 需要symbol和orderId一起取消
+          const binanceClient = this.exchangeClient as any;
+          if (binanceClient.privateRequest && typeof binanceClient.privateRequest === 'function') {
+            const symbol = contract.replace('_', '');
+            await binanceClient.privateRequest('/fapi/v1/order', {
+              symbol,
+              orderId: oppositeOrderId
+            }, 'DELETE', 2);
+            logger.debug(`✅ 已在Binance交易所取消反向条件单: ${oppositeOrderId} (symbol=${symbol})`);
+          }
+        }
+      } catch (cancelError: any) {
+        // 如果取消失败（订单可能已被触发或不存在），记录警告但继续更新数据库
+        logger.warn(`⚠️ 交易所端取消反向条件单失败（可能已触发）: ${cancelError.message}`);
+      }
+      
+      // 更新数据库状态
       await this.updateOrderStatus(oppositeOrderId, 'cancelled');
       logger.debug(`✅ 已取消反向条件单: ${oppositeOrderId}`);
     }
@@ -472,73 +670,120 @@ export class PriceOrderMonitor {
   /**
    * 查找平仓交易记录
    */
-  private async findCloseTrade(order: DBPriceOrder): Promise<any | null> {
+  private async findCloseTrade(order: DBPriceOrder, retries: number = 3): Promise<any | null> {
     try {
       const contract = this.exchangeClient.normalizeContract(order.symbol);
       
-      // 🔧 关键修复：增加查询数量，确保不遗漏交易
-      // 币安测试网的getMyTrades可能返回数据有限，需要查询更多记录
-      const trades = await this.exchangeClient.getMyTrades(contract, 500);
-
+      // 🔧 币安条件单触发后，成交记录可能有延迟，添加重试机制
+      let trades: any[] = [];
       const orderCreateTime = new Date(order.created_at).getTime();
-      const now = Date.now();
       
-      // 扩展时间窗口：条件单创建后24小时内的交易都要检查
-      // 这样可以捕获系统离线期间触发的止损/止盈
-      const maxTimeWindowMs = 24 * 60 * 60 * 1000; // 24小时
-
-      logger.debug(`查找 ${order.symbol} 平仓交易: 条件单创建时间=${new Date(orderCreateTime).toISOString()}, 获取${trades.length}笔交易记录`);
-
-      // 查找所有符合条件的平仓交易
-      const closeTrades = trades.filter(t => {
-        // 交易时间必须在条件单创建之后
-        const tradeTime = t.timestamp || t.create_time || 0;
-        if (tradeTime <= orderCreateTime) {
-          return false;
+      for (let attempt = 1; attempt <= retries; attempt++) {
+        // 第一次尝试立即查询，后续尝试等待3秒
+        if (attempt > 1) {
+          logger.debug(`等待1秒后重试查询成交记录 (${attempt}/${retries})...`);
+          await new Promise(resolve => setTimeout(resolve, 3000));
         }
-
-        // 只检查条件单创建后24小时内的交易
-        if (tradeTime - orderCreateTime > maxTimeWindowMs) {
-          return false;
-        }
-
-        // 检查交易方向（平仓方向与持仓相反）
-        const tradeSize = typeof t.size === 'number' ? t.size : parseFloat(t.size || '0');
-        const isCloseTrade = (order.side === 'long' && tradeSize < 0) || 
-                            (order.side === 'short' && tradeSize > 0);
         
-        if (!isCloseTrade) return false;
+        // 🔧 关键修复：传入条件单创建时间，让交易所API只返回此时间后的交易
+        // 给予5秒的时间容差，应对时间精度和API延迟问题
+        const timeToleranceMs = 5000;
+        const searchStartTime = orderCreateTime - timeToleranceMs;
+        
+        trades = await this.exchangeClient.getMyTrades(contract, 500, searchStartTime);
+        
+        const now = Date.now();
+        const maxTimeWindowMs = 24 * 60 * 60 * 1000; // 24小时
 
-        // 验证价格是否触及触发价
-        const tradePrice = parseFloat(t.price);
-        const triggerPrice = parseFloat(order.trigger_price);
-
-        if (order.type === 'stop_loss') {
-          // 止损：多单向下突破，空单向上突破
-          return order.side === 'long' ? tradePrice <= triggerPrice : tradePrice >= triggerPrice;
-        } else {
-          // 止盈：多单向上突破，空单向下突破
-          return order.side === 'long' ? tradePrice >= triggerPrice : tradePrice <= triggerPrice;
+        if (attempt === 1) {
+          logger.debug(`查找 ${order.symbol} 平仓交易: 条件单创建时间=${new Date(orderCreateTime).toISOString()}, 搜索起始=${new Date(searchStartTime).toISOString()}, 获取${trades.length}笔交易记录`);
         }
-      });
 
-      if (closeTrades.length === 0) {
-        logger.debug(`未找到 ${order.symbol} ${order.type} 的平仓交易记录`);
-        return null;
+        // 查找所有符合条件的平仓交易
+        const closeTrades = trades.filter(t => {
+          // 交易时间必须在容差范围内
+          const tradeTime = t.timestamp || t.create_time || 0;
+          if (tradeTime < searchStartTime) {
+            return false;
+          }
+
+          // 只检查条件单创建后24小时内的交易
+          if (tradeTime - orderCreateTime > maxTimeWindowMs) {
+            return false;
+          }
+
+          // 检查交易方向（平仓方向与持仓相反）
+          const tradeSize = typeof t.size === 'number' ? t.size : parseFloat(t.size || '0');
+          const isCloseTrade = (order.side === 'long' && tradeSize < 0) || 
+                              (order.side === 'short' && tradeSize > 0);
+          
+          if (!isCloseTrade) return false;
+
+          // 🔧 价格验证优化：放宽价格匹配条件，因为条件单触发时价格可能略有偏差
+          const tradePrice = parseFloat(t.price);
+          const triggerPrice = parseFloat(order.trigger_price);
+          const priceTolerancePercent = 0.1; // 0.1% 价格容差
+          const priceTolerance = triggerPrice * (priceTolerancePercent / 100);
+
+          if (order.type === 'stop_loss') {
+            // 止损：多单向下突破，空单向上突破
+            // 放宽条件：价格在触发价附近即可
+            if (order.side === 'long') {
+              return tradePrice <= triggerPrice + priceTolerance;
+            } else {
+              return tradePrice >= triggerPrice - priceTolerance;
+            }
+          } else {
+            // 止盈：多单向上突破，空单向下突破
+            // 放宽条件：价格在触发价附近即可
+            if (order.side === 'long') {
+              return tradePrice >= triggerPrice - priceTolerance;
+            } else {
+              return tradePrice <= triggerPrice + priceTolerance;
+            }
+          }
+        });
+
+        if (closeTrades.length > 0) {
+          // 找到了成交记录
+          const closeTrade = closeTrades.reduce((earliest, current) => {
+            const currentTime = current.timestamp || current.create_time || 0;
+            const earliestTime = earliest.timestamp || earliest.create_time || 0;
+            return currentTime < earliestTime ? current : earliest;
+          });
+
+          const tradeTime = closeTrade.timestamp || closeTrade.create_time || 0;
+          const minutesAgo = Math.floor((now - tradeTime) / 60000);
+          logger.debug(`✅ 找到平仓交易: 时间=${new Date(tradeTime).toISOString()}, 价格=${closeTrade.price}, 距今${minutesAgo}分钟`);
+
+          return closeTrade;
+        }
+        
+        // 🔍 调试：如果未找到，输出所有候选交易以便排查
+        if (attempt === retries && trades.length > 0) {
+          logger.warn(`❌ 未找到符合条件的平仓交易，输出调试信息:`);
+          logger.warn(`   条件单信息: ${order.symbol} ${order.side} ${order.type}, 触发价=${order.trigger_price}, 创建时间=${new Date(orderCreateTime).toISOString()}`);
+          logger.warn(`   搜索时间范围: ${new Date(searchStartTime).toISOString()} ~ 现在`);
+          
+          // 输出最近10笔交易的详细信息
+          const recentTrades = trades.slice(0, 10);
+          logger.warn(`   最近${recentTrades.length}笔交易:`);
+          recentTrades.forEach((t, idx) => {
+            const tradeTime = t.timestamp || t.create_time || 0;
+            const tradeSize = typeof t.size === 'number' ? t.size : parseFloat(t.size || '0');
+            const isCloseTrade = (order.side === 'long' && tradeSize < 0) || 
+                                (order.side === 'short' && tradeSize > 0);
+            logger.warn(`     [${idx + 1}] 时间=${new Date(tradeTime).toISOString()}, 价格=${t.price}, 数量=${tradeSize}, 方向=${isCloseTrade ? '平仓' : '开仓'}`);
+          });
+        }
+        
+        if (attempt < retries) {
+          logger.debug(`第${attempt}次未找到成交记录，准备重试...`);
+        }
       }
 
-      // 如果有多笔交易，选择最早的一笔（最接近触发时刻）
-      const closeTrade = closeTrades.reduce((earliest, current) => {
-        const currentTime = current.timestamp || current.create_time || 0;
-        const earliestTime = earliest.timestamp || earliest.create_time || 0;
-        return currentTime < earliestTime ? current : earliest;
-      });
-
-      const tradeTime = closeTrade.timestamp || closeTrade.create_time || 0;
-      const minutesAgo = Math.floor((now - tradeTime) / 60000);
-      logger.debug(`✅ 找到平仓交易: 时间=${new Date(tradeTime).toISOString()}, 价格=${closeTrade.price}, 距今${minutesAgo}分钟`);
-
-      return closeTrade;
+      logger.debug(`未找到 ${order.symbol} ${order.type} 的平仓交易记录 (已重试${retries}次)`);
+      return null;
     } catch (error: any) {
       logger.error(`查找平仓交易失败:`, error);
       return null;
@@ -765,6 +1010,9 @@ export class PriceOrderMonitor {
       const estimatedOpenFee = Math.abs(entryPrice * quantity * 0.0002); // 估算开仓手续费
       const totalFee = closeFee + estimatedOpenFee;
 
+      // 🔧 修复: order_id 统一存储实际平仓成交的订单ID，与 trades 表保持一致
+      const closeOrderId = trade.id || order.order_id; // 优先使用成交ID，与trades表保持一致
+      
       await this.dbClient.execute({
         sql: `INSERT INTO position_close_events 
               (symbol, side, close_reason, trigger_type, trigger_price, close_price, entry_price, 
@@ -785,7 +1033,7 @@ export class PriceOrderMonitor {
           totalFee,
           order.order_id,
           trade.id,
-          order.order_id,
+          closeOrderId,
           new Date().toISOString(),
           0 // 未处理
         ]

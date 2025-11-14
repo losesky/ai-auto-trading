@@ -19,6 +19,7 @@ import { createLogger } from '../src/utils/logger';
 import { getChinaTimeISO } from '../src/utils/timeUtils';
 import { calculateScientificStopLoss, updateTrailingStopLoss } from '../src/services/stopLossCalculator';
 import { analyzeMarketState, analyzeMultipleMarketStates } from '../src/services/marketStateAnalyzer';
+import { formatPriceNumber } from '../src/utils/priceFormatter';
 import type { MarketStateAnalysis } from '../src/types/marketState';
 
 const logger = createLogger({
@@ -35,7 +36,7 @@ const TEST_CONFIG = {
   symbol: 'ETH_USDT',
   side: 'long' as const,
   leverage: 2,
-  amountUsdt: 20, // 小额测试
+  amountUsdt: 100, // 增加到100 USDT,确保满足币安最小名义价值20的要求(考虑精度修正)
   testMode: process.env.TEST_MODE === 'true', // 是否真实下单
 };
 
@@ -49,6 +50,9 @@ interface TestResult {
 }
 
 const testResults: TestResult[] = [];
+
+// 🔧 全局测试开始时间，用于阶段9.5查询交易所成交记录
+let GLOBAL_TEST_START_TIME = 0;
 
 /**
  * 记录测试结果
@@ -296,13 +300,13 @@ async function phase2_TestOpenPosition(): Promise<{ orderId: string; slOrderId: 
     });
     
     // 2.7 设置止损止盈
-    const stopLossPrice = TEST_CONFIG.side === 'long' 
+    const stopLossPrice = formatPriceNumber(TEST_CONFIG.side === 'long' 
       ? fillPrice * 0.98 // 下跌2%止损
-      : fillPrice * 1.02; // 上涨2%止损
+      : fillPrice * 1.02); // 上涨2%止损
     
-    const takeProfitPrice = TEST_CONFIG.side === 'long'
+    const takeProfitPrice = formatPriceNumber(TEST_CONFIG.side === 'long'
       ? fillPrice * 1.06 // 上涨6%止盈
-      : fillPrice * 0.94; // 下跌6%止盈
+      : fillPrice * 0.94); // 下跌6%止盈
     
     const stopLossResult = await exchangeClient.setPositionStopLoss(
       contract,
@@ -379,7 +383,7 @@ async function phase2_TestOpenPosition(): Promise<{ orderId: string; slOrderId: 
         fillSize,
         fillPrice,
         fillPrice,
-        TEST_CONFIG.side === 'long' ? fillPrice * 0.9 : fillPrice * 1.1, // 估算强平价
+        formatPriceNumber(TEST_CONFIG.side === 'long' ? fillPrice * 0.9 : fillPrice * 1.1), // 估算强平价
         0,
         TEST_CONFIG.leverage,
         TEST_CONFIG.side,
@@ -623,8 +627,9 @@ async function phase4_TestPriceOrderMonitoring(): Promise<boolean> {
       if (isTriggered) {
         logger.warn(`⚠️  条件单 ${orderId} 可能已被触发（不在交易所列表中）`);
         
-        // 查找成交记录
-        const trades = await exchangeClient.getMyTrades(contract, 100);
+        // 查找成交记录 - 传入测试开始时间
+        const searchStartTime = startTime - 10 * 60 * 1000; // 测试开始前10分钟
+        const trades = await exchangeClient.getMyTrades(contract, 100, searchStartTime);
         const closeTrade = trades.find((t: any) => {
           const tradeId = t.id?.toString() || t.orderId?.toString();
           return tradeId === orderId;
@@ -1679,11 +1684,13 @@ async function phase9_ExchangeVsDatabaseSync(): Promise<boolean> {
     });
     
     // 9.5 验证交易所成交记录完整性
-    const recentTrades = await exchangeClient.getMyTrades(contract, 100);
+    // 🔧 使用全局测试开始时间，确保查询到本次测试的所有成交记录
+    // 给5分钟容差以防测试开始前的其他操作
+    const testStartTime = GLOBAL_TEST_START_TIME - 5 * 60 * 1000;
+    const recentTrades = await exchangeClient.getMyTrades(contract, 100, testStartTime);
     const testTrades = recentTrades.filter((t: any) => {
       const tradeTime = new Date(t.create_time || t.timestamp || Date.now()).getTime();
-      const testStartTime = startTime - 30 * 60 * 1000; // 测试开始前30分钟
-      return tradeTime > testStartTime;
+      return tradeTime >= testStartTime;
     });
     
     recordResult({
@@ -2464,112 +2471,434 @@ async function phase13_TrailingStopTest(): Promise<boolean> {
 }
 
 /**
- * 🆕 阶段14: 自动止损单系统测试
+ * 🆕 阶段14: 自动止损单系统集成测试
+ * 重新开仓 → 设置止损止盈 → 测试条件单监控服务 → 验证数据一致性
  */
 async function phase14_AutoStopLossOrderTest(): Promise<boolean> {
   const startTime = Date.now();
   
   try {
     logger.info('\n' + '='.repeat(80));
-    logger.info('阶段14: 自动止损单系统测试');
+    logger.info('阶段14: 自动止损单系统集成测试');
     logger.info('='.repeat(80));
     
-    // 14.1 验证止损单数据库记录
-    logger.info('\n📝 14.1 验证止损单数据库记录...');
+    const exchangeClient = getExchangeClient();
+    const contract = exchangeClient.normalizeContract(TEST_CONFIG.symbol);
     
-    try {
-      const priceOrdersResult = await dbClient.execute({
-        sql: `SELECT COUNT(*) as count FROM price_orders 
-              WHERE type IN ('stop_loss', 'take_profit')
-              AND status = 'active'`,
-      });
-      
-      const hasActiveOrders = (priceOrdersResult.rows[0].count as number) >= 0;
-      
-      recordResult({
-        phase: '14.1',
-        success: hasActiveOrders,
-        message: `止损单记录验证: ${priceOrdersResult.rows[0].count} 条活跃订单`,
-        data: { count: priceOrdersResult.rows[0].count },
-        duration: Date.now() - startTime,
-      });
-    } catch (error: any) {
+    // 14.1 重新开仓（为测试条件单监控准备数据）
+    logger.info('\n📝 14.1 重新开仓，准备测试环境...');
+    
+    const ticker = await exchangeClient.getFuturesTicker(contract);
+    const currentPrice = parseFloat(ticker.last || '0');
+    
+    if (!TEST_CONFIG.testMode) {
+      logger.warn('⚠️  TEST_MODE=false, 跳过真实开仓');
       recordResult({
         phase: '14.1',
         success: false,
-        message: '止损单记录验证失败',
-        error: error.message,
+        message: '跳过开仓（测试模式关闭）',
         duration: Date.now() - startTime,
+      });
+      return false;
+    }
+    
+    const quantity = TEST_CONFIG.amountUsdt / currentPrice;
+    const size = TEST_CONFIG.side === 'long' ? quantity : -quantity;
+    
+    await exchangeClient.setLeverage(contract, TEST_CONFIG.leverage);
+    
+    const order = await exchangeClient.placeOrder({
+      contract,
+      size,
+      price: 0,
+    });
+    
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    const orderDetail = await exchangeClient.getOrder(order.id!.toString());
+    const fillPrice = parseFloat(order.price || orderDetail.fill_price || orderDetail.price || currentPrice.toString());
+    const fillSize = Math.abs(parseFloat(orderDetail.size || order.size?.toString() || '0') - parseFloat(orderDetail.left || '0'));
+    
+    recordResult({
+      phase: '14.1',
+      success: fillSize > 0,
+      message: `开仓成功: ${fillSize} @ ${fillPrice}`,
+      data: { fillPrice, fillSize },
+      duration: Date.now() - startTime,
+    });
+    
+    // 14.2 设置止损止盈
+    logger.info('\n📝 14.2 设置止损止盈条件单...');
+    
+    const stopLossPrice = formatPriceNumber(TEST_CONFIG.side === 'long' 
+      ? fillPrice * 0.9995
+      : fillPrice * 1.0005);
+    
+    const takeProfitPrice = formatPriceNumber(TEST_CONFIG.side === 'long'
+      ? fillPrice * 1.0005
+      : fillPrice * 0.9995);
+    
+    const stopLossResult = await exchangeClient.setPositionStopLoss(
+      contract,
+      stopLossPrice,
+      takeProfitPrice
+    );
+    
+    recordResult({
+      phase: '14.2',
+      success: stopLossResult.success,
+      message: `设置止损止盈: SL=${stopLossPrice.toFixed(2)}, TP=${takeProfitPrice.toFixed(2)}`,
+      data: stopLossResult,
+      duration: Date.now() - startTime,
+    });
+    
+    // 14.3 记录到数据库
+    logger.info('\n📝 14.3 保存持仓和条件单到数据库...');
+    
+    const now = new Date().toISOString();
+    const contractInfo = await exchangeClient.getContractInfo(contract);
+    const multiplier = contractInfo.quanto_multiplier || contractInfo.multiplier || 0.01;
+    const notionalValue = fillPrice * fillSize * multiplier;
+    const openFee = notionalValue * 0.0005;
+    
+    await dbClient.execute({
+      sql: `INSERT INTO trades (order_id, symbol, side, type, price, quantity, leverage, fee, timestamp, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        order.id?.toString() || '',
+        TEST_CONFIG.symbol,
+        TEST_CONFIG.side,
+        'open',
+        fillPrice,
+        fillSize,
+        TEST_CONFIG.leverage,
+        openFee,
+        now,
+        'filled',
+      ],
+    });
+    
+    if (stopLossResult.stopLossOrderId) {
+      await dbClient.execute({
+        sql: `INSERT INTO price_orders (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at, position_order_id)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          stopLossResult.stopLossOrderId,
+          TEST_CONFIG.symbol,
+          TEST_CONFIG.side,
+          'stop_loss',
+          stopLossPrice,
+          0,
+          fillSize,
+          'active',
+          now,
+          order.id?.toString() || '',
+        ],
       });
     }
     
-    // 14.2 验证止损单与持仓关联
-    logger.info('\n📝 14.2 验证止损单与持仓关联...');
-    
-    try {
-      const orphanOrders = await dbClient.execute(`
-        SELECT po.* FROM price_orders po
-        LEFT JOIN positions p ON po.symbol = p.symbol
-        WHERE po.status = 'active' 
-        AND po.type IN ('stop_loss', 'take_profit')
-        AND p.symbol IS NULL
-      `);
-      
-      const associationValid = orphanOrders.rows.length === 0;
-      
-      recordResult({
-        phase: '14.2',
-        success: associationValid,
-        message: `止损单关联验证: ${associationValid ? '全部关联✓' : `${orphanOrders.rows.length}个孤儿订单✗`}`,
-        data: { orphanCount: orphanOrders.rows.length },
-        duration: Date.now() - startTime,
-      });
-    } catch (error: any) {
-      recordResult({
-        phase: '14.2',
-        success: false,
-        message: '止损单关联验证失败',
-        error: error.message,
-        duration: Date.now() - startTime,
+    if (stopLossResult.takeProfitOrderId) {
+      await dbClient.execute({
+        sql: `INSERT INTO price_orders (order_id, symbol, side, type, trigger_price, order_price, quantity, status, created_at, position_order_id)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          stopLossResult.takeProfitOrderId,
+          TEST_CONFIG.symbol,
+          TEST_CONFIG.side,
+          'take_profit',
+          takeProfitPrice,
+          0,
+          fillSize,
+          'active',
+          now,
+          order.id?.toString() || '',
+        ],
       });
     }
     
-    // 14.3 验证止损单类型分布
-    logger.info('\n📝 14.3 验证止损单类型分布...');
+    await dbClient.execute({
+      sql: `INSERT INTO positions 
+            (symbol, quantity, entry_price, current_price, liquidation_price, unrealized_pnl, 
+             leverage, side, stop_loss, profit_target, sl_order_id, tp_order_id, entry_order_id, opened_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        TEST_CONFIG.symbol,
+        fillSize,
+        fillPrice,
+        fillPrice,
+        formatPriceNumber(TEST_CONFIG.side === 'long' ? fillPrice * 0.9 : fillPrice * 1.1),
+        0,
+        TEST_CONFIG.leverage,
+        TEST_CONFIG.side,
+        stopLossPrice,
+        takeProfitPrice,
+        stopLossResult.stopLossOrderId || null,
+        stopLossResult.takeProfitOrderId || null,
+        order.id?.toString() || '',
+        now,
+      ],
+    });
     
-    try {
-      const typesResult = await dbClient.execute(`
-        SELECT type, COUNT(*) as count 
-        FROM price_orders 
-        WHERE status = 'active'
-        GROUP BY type
-      `);
+    recordResult({
+      phase: '14.3',
+      success: true,
+      message: '持仓和条件单已保存到数据库',
+      duration: Date.now() - startTime,
+    });
+    
+    // 14.3.5 等待价格波动，给条件单触发的机会
+    logger.info('\n📝 14.3.5 等待价格波动，监测条件单触发...');
+    logger.info(`当前价格: ${fillPrice.toFixed(2)}`);
+    logger.info(`止损价: ${stopLossPrice.toFixed(2)} (${TEST_CONFIG.side === 'long' ? '下跌' : '上涨'}触发)`);
+    logger.info(`止盈价: ${takeProfitPrice.toFixed(2)} (${TEST_CONFIG.side === 'long' ? '上涨' : '下跌'}触发)`);
+    logger.info('等待30秒，监测价格变动和条件单状态...\n');
+    
+    let priceTriggered = false;
+    let triggeredType: 'stop_loss' | 'take_profit' | null = null;
+    const monitoringDuration = 60000; // 60秒
+    const checkInterval = 3000; // 每3秒检查一次
+    const monitorStartTime = Date.now();
+    
+    while (Date.now() - monitorStartTime < monitoringDuration) {
+      await new Promise(resolve => setTimeout(resolve, checkInterval));
       
-      const hasStopLossOrders = typesResult.rows.some((row: any) => 
-        row.type === 'stop_loss' || row.type === 'take_profit'
+      // 检查当前价格
+      const currentTicker = await exchangeClient.getFuturesTicker(contract);
+      const latestPrice = parseFloat(currentTicker.last || '0');
+      const priceChange = ((latestPrice - fillPrice) / fillPrice) * 100;
+      
+      logger.info(`[${Math.floor((Date.now() - monitorStartTime) / 1000)}s] 价格: ${latestPrice.toFixed(2)} (${priceChange >= 0 ? '+' : ''}${priceChange.toFixed(3)}%)`);
+      
+      // 检查交易所条件单状态
+      const currentExchangeOrders = await exchangeClient.getPriceOrders(contract);
+      const slExists = currentExchangeOrders.some((o: any) => 
+        (o.id || o.orderId || o.order_id)?.toString() === stopLossResult.stopLossOrderId
+      );
+      const tpExists = currentExchangeOrders.some((o: any) => 
+        (o.id || o.orderId || o.order_id)?.toString() === stopLossResult.takeProfitOrderId
       );
       
-      const typeDistribution = typesResult.rows.reduce((acc: any, row: any) => {
-        acc[row.type] = row.count;
-        return acc;
-      }, {});
+      // 检查持仓是否还存在
+      const currentPositions = await exchangeClient.getPositions();
+      const positionExists = currentPositions.some((p: any) => 
+        p.contract === contract && Math.abs(parseFloat(p.size || '0')) > 0
+      );
       
-      recordResult({
-        phase: '14.3',
-        success: hasStopLossOrders || typesResult.rows.length === 0, // 允许没有订单的情况
-        message: `止损单类型分布: ${JSON.stringify(typeDistribution)}`,
-        data: { types: typesResult.rows, distribution: typeDistribution },
-        duration: Date.now() - startTime,
-      });
-    } catch (error: any) {
-      recordResult({
-        phase: '14.3',
-        success: false,
-        message: '止损单类型验证失败',
-        error: error.message,
-        duration: Date.now() - startTime,
-      });
+      // 判断是否触发
+      if (!positionExists && (!slExists || !tpExists)) {
+        priceTriggered = true;
+        
+        // 根据价格变动方向判断触发类型（更准确）
+        // 多头：价格上涨触发止盈，价格下跌触发止损
+        // 空头：价格下跌触发止盈，价格上涨触发止损
+        if (TEST_CONFIG.side === 'long') {
+          triggeredType = latestPrice >= takeProfitPrice ? 'take_profit' : 'stop_loss';
+        } else {
+          triggeredType = latestPrice <= takeProfitPrice ? 'take_profit' : 'stop_loss';
+        }
+        
+        logger.info(`\n🎯 检测到条件单触发: ${triggeredType === 'stop_loss' ? '止损' : '止盈'}`);
+        logger.info(`   触发价格: ${latestPrice.toFixed(2)}`);
+        logger.info(`   价格变动: ${priceChange >= 0 ? '+' : ''}${priceChange.toFixed(3)}%`);
+        break;
+      }
+      
+      // 检查是否接近触发价
+      const slDistance = TEST_CONFIG.side === 'long' 
+        ? ((latestPrice - stopLossPrice) / stopLossPrice) * 100
+        : ((stopLossPrice - latestPrice) / stopLossPrice) * 100;
+      const tpDistance = TEST_CONFIG.side === 'long'
+        ? ((takeProfitPrice - latestPrice) / takeProfitPrice) * 100
+        : ((latestPrice - takeProfitPrice) / takeProfitPrice) * 100;
+      
+      logger.info(`   距离止损: ${slDistance >= 0 ? '+' : ''}${slDistance.toFixed(3)}% | 距离止盈: ${tpDistance >= 0 ? '+' : ''}${tpDistance.toFixed(3)}%`);
     }
+    
+    const waitDuration = Date.now() - monitorStartTime;
+    
+    recordResult({
+      phase: '14.3.5',
+      success: true,
+      message: priceTriggered 
+        ? `价格波动触发${triggeredType === 'stop_loss' ? '止损' : '止盈'} (等待${(waitDuration/1000).toFixed(1)}秒)`
+        : `等待${(waitDuration/1000).toFixed(1)}秒，价格未触发条件单`,
+      data: { priceTriggered, triggeredType, waitDuration },
+      duration: Date.now() - startTime,
+    });
+    
+    // 14.4 验证条件单监控服务能正确检测
+    logger.info('\n📝 14.4 测试条件单监控服务检测能力...');
+    
+    const priceOrderMonitor = new (await import('../src/scheduler/priceOrderMonitor')).PriceOrderMonitor(
+      dbClient,
+      exchangeClient
+    );
+    
+    // 手动触发一次检测（不启动定时任务）
+    logger.info('调用监控服务检测条件单状态...');
+    await (priceOrderMonitor as any).checkTriggeredOrders();
+    
+    // 验证数据库中的条件单状态
+    const activeOrdersCheck = await dbClient.execute({
+      sql: 'SELECT * FROM price_orders WHERE symbol = ? AND status = ?',
+      args: [TEST_CONFIG.symbol, 'active'],
+    });
+    
+    const triggeredOrdersCheck = await dbClient.execute({
+      sql: 'SELECT * FROM price_orders WHERE symbol = ? AND status = ?',
+      args: [TEST_CONFIG.symbol, 'triggered'],
+    });
+    
+    let monitoringCorrect = false;
+    let detectionMessage = '';
+    
+    if (priceTriggered) {
+      // 如果价格触发了，应该检测到triggered状态
+      monitoringCorrect = triggeredOrdersCheck.rows.length > 0 && activeOrdersCheck.rows.length < 2;
+      detectionMessage = `条件单已触发: ${triggeredOrdersCheck.rows.length}个triggered, ${activeOrdersCheck.rows.length}个active`;
+      
+      // 验证平仓事件记录
+      const closeEvents = await dbClient.execute({
+        sql: 'SELECT * FROM position_close_events WHERE symbol = ? ORDER BY created_at DESC LIMIT 1',
+        args: [TEST_CONFIG.symbol],
+      });
+      
+      if (closeEvents.rows.length > 0) {
+        const closeEvent = closeEvents.rows[0] as any;
+        logger.info(`✅ 平仓事件已记录: ${closeEvent.close_reason}, PnL=${closeEvent.pnl?.toFixed(2)} USDT`);
+      }
+    } else {
+      // 如果价格未触发，应该仍然是active状态
+      monitoringCorrect = activeOrdersCheck.rows.length === 2 && triggeredOrdersCheck.rows.length === 0;
+      detectionMessage = `条件单未触发: ${activeOrdersCheck.rows.length}个active (期望2个)`;
+    }
+    
+    recordResult({
+      phase: '14.4',
+      success: monitoringCorrect,
+      message: `监控服务检测${monitoringCorrect ? '正确' : '异常'}: ${detectionMessage}`,
+      data: { 
+        activeCount: activeOrdersCheck.rows.length, 
+        triggeredCount: triggeredOrdersCheck.rows.length,
+        priceTriggered,
+        triggeredType
+      },
+      duration: Date.now() - startTime,
+    });
+    
+    // 14.5 验证数据库与交易所的一致性
+    logger.info('\n📝 14.5 验证数据库与交易所条件单一致性...');
+    
+    const exchangeOrders = await exchangeClient.getPriceOrders(contract);
+    const dbOrders = await dbClient.execute({
+      sql: 'SELECT * FROM price_orders WHERE symbol = ? AND status = ?',
+      args: [TEST_CONFIG.symbol, 'active'],
+    });
+    
+    const exchangeOrderIds = new Set(
+      exchangeOrders.map((o: any) => (o.id || o.orderId || o.order_id)?.toString())
+    );
+    
+    let allMatched = true;
+    let consistencyCheck = false;
+    let consistencyMessage = '';
+    
+    if (priceTriggered) {
+      // 条件单已触发：数据库应该没有active订单
+      consistencyCheck = dbOrders.rows.length === 0;
+      
+      // 交易所可能还有残留订单（API延迟），这是正常的
+      if (exchangeOrders.length > 0) {
+        logger.warn(`交易所有${exchangeOrders.length}个残留条件单,取消反向单逻辑可能存在异常`);
+      }
+      
+      consistencyMessage = `条件单已触发: DB=${dbOrders.rows.length}个active (期望0), Exchange=${exchangeOrders.length}个 ${consistencyCheck ? '✓' : '✗'}`;
+    } else {
+      // 条件单未触发：验证数据库和交易所的订单完全一致
+      for (const dbOrder of dbOrders.rows) {
+        const orderId = (dbOrder as any).order_id;
+        if (!exchangeOrderIds.has(orderId)) {
+          logger.warn(`数据库订单 ${orderId} 在交易所不存在`);
+          allMatched = false;
+        }
+      }
+      
+      consistencyCheck = allMatched && dbOrders.rows.length === exchangeOrders.length;
+      consistencyMessage = `条件单未触发: DB=${dbOrders.rows.length}, Exchange=${exchangeOrders.length} ${consistencyCheck ? '✓' : '✗'}`;
+    }
+    
+    recordResult({
+      phase: '14.5',
+      success: consistencyCheck,
+      message: consistencyMessage,
+      data: { 
+        dbCount: dbOrders.rows.length, 
+        exchangeCount: exchangeOrders.length,
+        priceTriggered,
+        allMatched
+      },
+      duration: Date.now() - startTime,
+    });
+    
+    // 14.6 清理测试持仓和条件单
+    logger.info('\n📝 14.6 清理测试数据（保持测试环境干净）...');
+    
+    // 检查持仓是否还存在（可能已被条件单触发平仓）
+    const finalPositions = await exchangeClient.getPositions();
+    const finalPosition = finalPositions.find((p: any) => 
+      p.contract === contract && Math.abs(parseFloat(p.size || '0')) > 0
+    );
+    
+    if (finalPosition) {
+      logger.info('持仓仍存在，执行手动平仓...');
+      
+      // 取消条件单
+      try {
+        await exchangeClient.cancelPositionStopLoss(contract);
+        logger.info('✅ 条件单已取消');
+      } catch (error: any) {
+        logger.warn(`取消条件单失败（可能已被触发）: ${error.message}`);
+      }
+      
+      // 平仓
+      const currentSize = parseFloat(finalPosition.size || '0');
+      const closeSize = -currentSize; // 反向平仓
+      
+      try {
+        await exchangeClient.placeOrder({
+          contract,
+          size: closeSize,
+          price: 0,
+          reduceOnly: true,
+        });
+        logger.info('✅ 持仓已平仓');
+      } catch (error: any) {
+        logger.error(`平仓失败: ${error.message}`);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    } else {
+      logger.info('持仓已不存在（已被条件单触发平仓），跳过手动平仓');
+    }
+    
+    // 清理数据库（无论持仓是否存在都要清理）
+    await dbClient.execute({
+      sql: 'DELETE FROM positions WHERE symbol = ?',
+      args: [TEST_CONFIG.symbol],
+    });
+    await dbClient.execute({
+      sql: 'UPDATE price_orders SET status = ? WHERE symbol = ? AND status = ?',
+      args: ['cancelled', TEST_CONFIG.symbol, 'active'],
+    });
+    
+    logger.info('✅ 数据库记录已清理');
+    
+    recordResult({
+      phase: '14.6',
+      success: true,
+      message: priceTriggered ? '测试数据已清理（条件单已触发）' : '测试数据已清理（手动平仓）',
+      duration: Date.now() - startTime,
+    });
     
     return true;
     
@@ -2577,7 +2906,7 @@ async function phase14_AutoStopLossOrderTest(): Promise<boolean> {
     recordResult({
       phase: '14',
       success: false,
-      message: '自动止损单系统测试失败',
+      message: '自动止损单系统集成测试失败',
       error: error.message,
       duration: Date.now() - startTime,
     });
@@ -3339,6 +3668,9 @@ function generateReport() {
  * 主测试流程
  */
 async function main() {
+  // 🔧 记录全局测试开始时间
+  GLOBAL_TEST_START_TIME = Date.now();
+  
   logger.info('🚀 开始完整交易流程集成测试\n');
   logger.info(`测试配置:`);
   logger.info(`  币种: ${TEST_CONFIG.symbol}`);
@@ -3402,7 +3734,8 @@ async function main() {
     // 🆕 阶段13: 移动止损机制测试
     await phase13_TrailingStopTest();
     
-    // 🆕 阶段14: 自动止损单系统测试
+    // 🆕 阶段14: 自动止损单系统集成测试（完整流程：开仓→监控→清理）
+    logger.info('\n💡 提示: 阶段14将重新开仓测试条件单监控服务的完整集成');
     await phase14_AutoStopLossOrderTest();
     
     // 🆕 阶段15: 分批止盈R倍数系统测试
