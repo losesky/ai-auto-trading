@@ -57,6 +57,23 @@ export class BinanceExchangeClient implements IExchangeClient {
   private networkHealthy = true;
   private lastNetworkCheck = 0;
 
+  // ============ 数据缓存机制 ============
+  private positionsCache: { data: PositionInfo[]; timestamp: number } | null = null;
+  private readonly POSITIONS_CACHE_TTL = 3000; // 持仓缓存3秒
+  private accountInfoCache: { data: AccountInfo; timestamp: number } | null = null;
+  private readonly ACCOUNT_INFO_CACHE_TTL = 5000; // 账户信息缓存5秒
+  private tickerCache: Map<string, { data: TickerInfo; timestamp: number }> = new Map();
+  private readonly TICKER_CACHE_TTL = 2000; // 行情缓存2秒
+  private candleCache: Map<string, { data: CandleData[]; timestamp: number }> = new Map();
+  private readonly CANDLE_CACHE_TTL = 30000; // K线缓存30秒
+  
+  // ============ 请求限流机制 ============
+  private requestTimestamps: number[] = [];
+  private readonly MAX_REQUESTS_PER_MINUTE = 5500; // 币安限制6000，保留安全边界
+  private readonly REQUEST_INTERVAL = 60000; // 1分钟窗口
+  private readonly MIN_REQUEST_DELAY = 100; // 最小请求间隔100ms
+  private lastRequestTime = 0;
+
   constructor(config: ExchangeConfig) {
     this.config = config;
     this.apiKey = config.apiKey;
@@ -202,9 +219,52 @@ export class BinanceExchangeClient implements IExchangeClient {
   }
 
   /**
+   * 请求限流控制
+   * 确保请求频率不超过币安限制
+   */
+  private async rateLimitControl(): Promise<void> {
+    const now = Date.now();
+    
+    // 清理1分钟前的时间戳
+    this.requestTimestamps = this.requestTimestamps.filter(
+      timestamp => now - timestamp < this.REQUEST_INTERVAL
+    );
+    
+    // 如果达到限制，等待
+    if (this.requestTimestamps.length >= this.MAX_REQUESTS_PER_MINUTE) {
+      const oldestTimestamp = this.requestTimestamps[0];
+      const waitTime = this.REQUEST_INTERVAL - (now - oldestTimestamp) + 100; // 额外等待100ms
+      if (waitTime > 0) {
+        logger.warn(`请求频率达到限制，等待 ${waitTime}ms`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
+    
+    // 确保最小请求间隔
+    const timeSinceLastRequest = now - this.lastRequestTime;
+    if (timeSinceLastRequest < this.MIN_REQUEST_DELAY) {
+      await new Promise(resolve => setTimeout(resolve, this.MIN_REQUEST_DELAY - timeSinceLastRequest));
+    }
+    
+    // 记录本次请求
+    this.requestTimestamps.push(Date.now());
+    this.lastRequestTime = Date.now();
+  }
+
+  /**
+   * 检查缓存是否有效
+   */
+  private isCacheValid(timestamp: number, ttl: number): boolean {
+    return Date.now() - timestamp < ttl;
+  }
+
+  /**
    * 处理API请求，包含重试、超时和错误处理逻辑
    */
   private async handleRequest(url: URL, options: RequestInit, retries = 3): Promise<any> {
+    // 应用限流控制
+    await this.rateLimitControl();
+    
     for (let attempt = 1; attempt <= retries; attempt++) {
       const controller = new AbortController();
       // 增加超时时间，第一次30秒，之后递增
@@ -407,12 +467,20 @@ export class BinanceExchangeClient implements IExchangeClient {
   async getFuturesTicker(contract: string, retries: number = 2): Promise<TickerInfo> {
     try {
       const symbol = this.normalizeContract(contract);
+
+      // 检查缓存
+      const cacheKey = symbol;
+      const cached = this.tickerCache.get(cacheKey);
+      if (cached && this.isCacheValid(cached.timestamp, this.TICKER_CACHE_TTL)) {
+        return cached.data;
+      }
+
       const [ticker, markPrice] = await Promise.all([
         this.publicRequest('/fapi/v1/ticker/24hr', { symbol }, retries),
         this.publicRequest('/fapi/v1/premiumIndex', { symbol }, retries)
       ]);
       
-      return {
+      const result = {
         contract: contract,
         last: ticker.lastPrice,
         markPrice: markPrice.markPrice,
@@ -422,6 +490,14 @@ export class BinanceExchangeClient implements IExchangeClient {
         low24h: ticker.lowPrice,
         change24h: ticker.priceChangePercent,
       };
+
+      // 更新缓存
+      this.tickerCache.set(cacheKey, {
+        data: result,
+        timestamp: Date.now()
+      });
+
+      return result;
     } catch (error) {
       logger.error(`获取 ${contract} 行情失败:`, error as Error);
       throw error;
@@ -438,6 +514,16 @@ export class BinanceExchangeClient implements IExchangeClient {
   ): Promise<CandleData[]> {
     try {
       const symbol = this.normalizeContract(contract);
+
+      // 检查缓存 (如果没有指定时间范围，才使用缓存)
+      if (!from && !to) {
+        const cacheKey = `${symbol}-${interval}-${limit}`;
+        const cached = this.candleCache.get(cacheKey);
+        if (cached && this.isCacheValid(cached.timestamp, this.CANDLE_CACHE_TTL)) {
+          return cached.data;
+        }
+      }
+
       const params: any = {
         symbol,
         interval,
@@ -449,7 +535,7 @@ export class BinanceExchangeClient implements IExchangeClient {
 
       const response = await this.publicRequest('/fapi/v1/klines', params, retries);
 
-      return response.map((k: any[]) => ({
+      const result = response.map((k: any[]) => ({
         timestamp: k[0],
         open: k[1].toString(),
         high: k[2].toString(),
@@ -457,6 +543,17 @@ export class BinanceExchangeClient implements IExchangeClient {
         close: k[4].toString(),
         volume: k[5].toString(),
       }));
+
+      // 更新缓存 (仅当没有指定时间范围时)
+      if (!from && !to) {
+        const cacheKey = `${symbol}-${interval}-${limit}`;
+        this.candleCache.set(cacheKey, {
+          data: result,
+          timestamp: Date.now()
+        });
+      }
+
+      return result;
     } catch (error) {
       logger.debug(`获取 ${contract} K线数据失败:`, error as Error);
       throw error;
@@ -465,9 +562,14 @@ export class BinanceExchangeClient implements IExchangeClient {
 
   async getFuturesAccount(retries: number = 2): Promise<AccountInfo> {
     try {
+      // 检查缓存
+      if (this.accountInfoCache && this.isCacheValid(this.accountInfoCache.timestamp, this.ACCOUNT_INFO_CACHE_TTL)) {
+        return this.accountInfoCache.data;
+      }
+
       const account = await this.privateRequest('/fapi/v2/account', {}, 'GET', retries);
       
-      return {
+      const result = {
         currency: 'USDT',
         total: account.totalWalletBalance,
         available: account.availableBalance,
@@ -475,6 +577,14 @@ export class BinanceExchangeClient implements IExchangeClient {
         orderMargin: account.totalOpenOrderInitialMargin || '0',
         unrealisedPnl: account.totalUnrealizedProfit,
       };
+
+      // 更新缓存
+      this.accountInfoCache = {
+        data: result,
+        timestamp: Date.now()
+      };
+
+      return result;
     } catch (error) {
       logger.error('获取账户信息失败:', error as Error);
       throw error;
@@ -483,6 +593,11 @@ export class BinanceExchangeClient implements IExchangeClient {
 
   async getPositions(retries: number = 2): Promise<PositionInfo[]> {
     try {
+      // 检查缓存
+      if (this.positionsCache && this.isCacheValid(this.positionsCache.timestamp, this.POSITIONS_CACHE_TTL)) {
+        return this.positionsCache.data;
+      }
+
       const positions = await this.privateRequest('/fapi/v2/positionRisk', {}, 'GET', retries);
       
     //   logger.info(`API 返回 ${positions.length} 个持仓记录`);
@@ -497,7 +612,7 @@ export class BinanceExchangeClient implements IExchangeClient {
       
     //   logger.info(`过滤后有效持仓数: ${filteredPositions.length}`);
       
-      return filteredPositions.map((p: any) => {
+      const result = filteredPositions.map((p: any) => {
         const posAmount = parseFloat(p.positionAmt);
         const entryPrice = parseFloat(p.entryPrice);
         const markPrice = parseFloat(p.markPrice);
@@ -521,6 +636,14 @@ export class BinanceExchangeClient implements IExchangeClient {
           margin: margin.toString(),
         };
       });
+
+      // 更新缓存
+      this.positionsCache = {
+        data: result,
+        timestamp: Date.now()
+      };
+
+      return result;
     } catch (error) {
       logger.error('获取持仓失败:', error as Error);
       throw error;
@@ -684,6 +807,10 @@ export class BinanceExchangeClient implements IExchangeClient {
       
       // 定期清理过期缓存
       this.cleanupCache();
+
+      // 清除相关缓存（因为持仓和账户信息已改变）
+      this.positionsCache = null;
+      this.accountInfoCache = null;
       
       return orderResponse;
     } catch (error) {
@@ -791,6 +918,10 @@ export class BinanceExchangeClient implements IExchangeClient {
         symbol,
         orderId
       }, 'DELETE');
+      
+      // 清除相关缓存
+      this.positionsCache = null;
+      this.accountInfoCache = null;
       
       logger.debug(`已取消订单 ${orderId}`);
     } catch (error: any) {

@@ -49,6 +49,16 @@ export class GateExchangeClient implements IExchangeClient {
   private readonly config: ExchangeConfig;
   private readonly contractInfoCache: Map<string, ContractInfo> = new Map();
 
+  // ============ 数据缓存机制 ============
+  private positionsCache: { data: PositionInfo[]; timestamp: number } | null = null;
+  private readonly POSITIONS_CACHE_TTL = 3000; // 持仓缓存3秒
+  private accountInfoCache: { data: AccountInfo; timestamp: number } | null = null;
+  private readonly ACCOUNT_INFO_CACHE_TTL = 5000; // 账户信息缓存5秒
+  private tickerCache: Map<string, { data: TickerInfo; timestamp: number }> = new Map();
+  private readonly TICKER_CACHE_TTL = 2000; // 行情缓存2秒
+  private candleCache: Map<string, { data: CandleData[]; timestamp: number }> = new Map();
+  private readonly CANDLE_CACHE_TTL = 30000; // K线缓存30秒
+
   constructor(config: ExchangeConfig) {
     this.config = config;
     
@@ -108,7 +118,21 @@ export class GateExchangeClient implements IExchangeClient {
     return contract.split('_')[0];
   }
 
+  /**
+   * 检查缓存是否有效
+   */
+  private isCacheValid(timestamp: number, ttl: number): boolean {
+    return Date.now() - timestamp < ttl;
+  }
+
   async getFuturesTicker(contract: string, retries: number = 2): Promise<TickerInfo> {
+    // 检查缓存
+    const cacheKey = contract;
+    const cached = this.tickerCache.get(cacheKey);
+    if (cached && this.isCacheValid(cached.timestamp, this.TICKER_CACHE_TTL)) {
+      return cached.data;
+    }
+
     let lastError: any;
     
     for (let i = 0; i <= retries; i++) {
@@ -120,7 +144,7 @@ export class GateExchangeClient implements IExchangeClient {
         
         // 🔧 Gate.io API 字段映射修复
         // Gate.io 返回的字段是下划线命名（snake_case），需要正确映射
-        return {
+        const tickerData = {
           contract: ticker.contract,
           last: ticker.last || "0",
           markPrice: ticker.mark_price || ticker.last || "0", // mark_price 而不是 markPrice
@@ -130,6 +154,14 @@ export class GateExchangeClient implements IExchangeClient {
           low24h: ticker.low_24h || "0", // low_24h 而不是 low24h
           change24h: ticker.change_percentage || "0", // change_percentage 而不是 changePercentage
         };
+
+        // 更新缓存
+        this.tickerCache.set(cacheKey, {
+          data: tickerData,
+          timestamp: Date.now()
+        });
+
+        return tickerData;
       } catch (error) {
         lastError = error;
         if (i < retries) {
@@ -150,6 +182,13 @@ export class GateExchangeClient implements IExchangeClient {
     limit: number = 100,
     retries: number = 2
   ): Promise<CandleData[]> {
+    // 检查缓存
+    const cacheKey = `${contract}-${interval}-${limit}`;
+    const cached = this.candleCache.get(cacheKey);
+    if (cached && this.isCacheValid(cached.timestamp, this.CANDLE_CACHE_TTL)) {
+      return cached.data;
+    }
+
     let lastError: any;
     
     for (let i = 0; i <= retries; i++) {
@@ -171,6 +210,12 @@ export class GateExchangeClient implements IExchangeClient {
           volume: candle.v,
         }));
         
+        // 更新缓存
+        this.candleCache.set(cacheKey, {
+          data: candles,
+          timestamp: Date.now()
+        });
+
         return candles;
       } catch (error) {
         lastError = error;
@@ -187,13 +232,18 @@ export class GateExchangeClient implements IExchangeClient {
   }
 
   async getFuturesAccount(retries: number = 2): Promise<AccountInfo> {
+    // 检查缓存
+    if (this.accountInfoCache && this.isCacheValid(this.accountInfoCache.timestamp, this.ACCOUNT_INFO_CACHE_TTL)) {
+      return this.accountInfoCache.data;
+    }
+
     let lastError: any;
     
     for (let i = 0; i <= retries; i++) {
       try {
         const result = await this.futuresApi.listFuturesAccounts(this.settle);
         const account = result.body;
-        return {
+        const accountData = {
           currency: account.currency,
           total: account.total || "0",
           available: account.available || "0",
@@ -201,6 +251,14 @@ export class GateExchangeClient implements IExchangeClient {
           orderMargin: account.orderMargin || "0",
           unrealisedPnl: account.unrealisedPnl || "0",
         };
+
+        // 更新缓存
+        this.accountInfoCache = {
+          data: accountData,
+          timestamp: Date.now()
+        };
+
+        return accountData;
       } catch (error: any) {
         lastError = error;
         
@@ -229,6 +287,11 @@ export class GateExchangeClient implements IExchangeClient {
   }
 
   async getPositions(retries: number = 2): Promise<PositionInfo[]> {
+    // 检查缓存
+    if (this.positionsCache && this.isCacheValid(this.positionsCache.timestamp, this.POSITIONS_CACHE_TTL)) {
+      return this.positionsCache.data;
+    }
+
     let lastError: any;
     
     for (let i = 0; i <= retries; i++) {
@@ -243,7 +306,7 @@ export class GateExchangeClient implements IExchangeClient {
           return symbol && allowedSymbols.includes(symbol);
         }) || [];
         
-        return filteredPositions.map((p: any) => ({
+        const positionsData = filteredPositions.map((p: any) => ({
           contract: p.contract,
           size: p.size || "0",
           leverage: p.leverage || "1",
@@ -254,6 +317,14 @@ export class GateExchangeClient implements IExchangeClient {
           realisedPnl: p.realisedPnl || "0",
           margin: p.margin || "0",
         }));
+
+        // 更新缓存
+        this.positionsCache = {
+          data: positionsData,
+          timestamp: Date.now()
+        };
+
+        return positionsData;
       } catch (error) {
         lastError = error;
         if (i < retries) {
@@ -442,6 +513,10 @@ export class GateExchangeClient implements IExchangeClient {
         }
       }
       
+      // 清除相关缓存（因为持仓和账户信息已改变）
+      this.positionsCache = null;
+      this.accountInfoCache = null;
+
       // 🔧 修复：...orderResult 必须在前面，避免覆盖我们设置的 price
       return {
         ...orderResult,
@@ -629,6 +704,11 @@ export class GateExchangeClient implements IExchangeClient {
         this.settle,
         orderId
       );
+
+      // 清除相关缓存
+      this.positionsCache = null;
+      this.accountInfoCache = null;
+
       return result.body;
     } catch (error: any) {
       // 404 表示订单不存在或已被执行，无需取消
