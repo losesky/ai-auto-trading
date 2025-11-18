@@ -376,70 +376,25 @@ export class PriceOrderMonitor {
       logger.warn(`近期平仓检查失败: ${checkError.message}`);
     }
 
-    // 🔧 关键优化：先快速查找平仓交易，判断价格是否匹配此条件单
-    // 这样可以避免在多个条件单都active时，误判到底哪个触发了
+    // ========================================
+    // 阶段1: 检查交易所持仓状态
+    // ========================================
     const checkContract = this.exchangeClient.normalizeContract(order.symbol);
-    const orderCreateTime = new Date(order.created_at).getTime();
-    const timeToleranceMs = 5000;
-    const searchStartTime = orderCreateTime - timeToleranceMs;
+    const positions = await this.exchangeClient.getPositions();
+    const positionExists = positions.some(p => 
+      p.contract === checkContract && Math.abs(parseFloat(p.size || '0')) > 0
+    );
     
-    try {
-      // 先获取最近的平仓交易（轻量查询，只取100条）
-      const recentTrades = await this.exchangeClient.getMyTrades(checkContract, 100, searchStartTime);
-      
-      // 筛选出平仓方向的交易
-      const closeTrades = recentTrades.filter(t => {
-        const tradeTime = t.timestamp || t.create_time || 0;
-        if (tradeTime < searchStartTime) return false;
-        
-        const tradeSize = typeof t.size === 'number' ? t.size : parseFloat(t.size || '0');
-        return (order.side === 'long' && tradeSize < 0) || (order.side === 'short' && tradeSize > 0);
-      });
-      
-      // 如果有平仓交易，检查价格是否匹配此条件单
-      if (closeTrades.length > 0) {
-        const latestCloseTrade = closeTrades.reduce((latest, current) => {
-          const currentTime = current.timestamp || current.create_time || 0;
-          const latestTime = latest.timestamp || latest.create_time || 0;
-          return currentTime > latestTime ? current : latest;
-        });
-        
-        const tradePrice = parseFloat(latestCloseTrade.price);
-        const triggerPrice = parseFloat(order.trigger_price);
-        const priceTolerancePercent = 0.2; // 0.2% 价格容差
-        const priceTolerance = triggerPrice * (priceTolerancePercent / 100);
-        
-        let priceMatches = false;
-        
-        if (order.type === 'stop_loss') {
-          // 止损：多单价格应该低于或接近触发价，空单价格应该高于或接近触发价
-          if (order.side === 'long') {
-            priceMatches = tradePrice <= triggerPrice + priceTolerance;
-          } else {
-            priceMatches = tradePrice >= triggerPrice - priceTolerance;
-          }
-        } else {
-          // 止盈：多单价格应该高于或接近触发价，空单价格应该低于或接近触发价
-          if (order.side === 'long') {
-            priceMatches = tradePrice >= triggerPrice - priceTolerance;
-          } else {
-            priceMatches = tradePrice <= triggerPrice + priceTolerance;
-          }
-        }
-        
-        // 如果价格不匹配，说明不是这个条件单触发的，跳过
-        if (!priceMatches) {
-          logger.debug(`⏭️ ${order.symbol} ${order.type} 价格不匹配，跳过: 平仓价=${tradePrice}, 触发价=${triggerPrice}, 类型=${order.type}, 方向=${order.side}`);
-          return;
-        }
-        
-        logger.debug(`✅ ${order.symbol} ${order.type} 价格匹配: 平仓价=${tradePrice}, 触发价=${triggerPrice}`);
-      }
-    } catch (error: any) {
-      logger.warn(`价格预检查失败，继续执行: ${error.message}`);
+    // 如果持仓仍存在，说明条件单被取消而非触发
+    if (positionExists) {
+      logger.info(`${order.symbol} 持仓仍在交易所，条件单被取消`);
+      await this.updateOrderStatus(order.order_id, 'cancelled');
+      return;
     }
 
-    // 阶段1: 查询持仓信息（用于计算PnL）- 提前查询，避免后面找不到
+    // ========================================
+    // 阶段2: 查询持仓信息（用于计算PnL）
+    // ========================================
     let position = await this.getPositionInfo(order.symbol, order.side);
     
     // 如果数据库中没有持仓记录，尝试从开仓交易记录中查找
@@ -779,34 +734,35 @@ export class PriceOrderMonitor {
 
   /**
    * 查找平仓交易记录
+   * 🔧 核心修复：使用近期时间窗口而非条件单创建时间，避免查询范围过大
    */
   private async findCloseTrade(order: DBPriceOrder, retries: number = 3): Promise<any | null> {
     try {
       const contract = this.exchangeClient.normalizeContract(order.symbol);
+      const currentTime = Date.now();
+      const orderCreateTime = new Date(order.created_at).getTime();
       
       // 🔧 币安条件单触发后，成交记录可能有延迟，添加重试机制
       let trades: any[] = [];
-      const orderCreateTime = new Date(order.created_at).getTime();
       
       for (let attempt = 1; attempt <= retries; attempt++) {
         // 第一次尝试立即查询，后续尝试等待3秒
         if (attempt > 1) {
-          logger.debug(`等待1秒后重试查询成交记录 (${attempt}/${retries})...`);
+          logger.debug(`等待3秒后重试查询成交记录 (${attempt}/${retries})...`);
           await new Promise(resolve => setTimeout(resolve, 3000));
         }
         
-        // 🔧 关键修复：传入条件单创建时间，让交易所API只返回此时间后的交易
-        // 给予5秒的时间容差，应对时间精度和API延迟问题
-        const timeToleranceMs = 5000;
-        const searchStartTime = orderCreateTime - timeToleranceMs;
+        // 🔧 关键修复：只查询最近5分钟的交易，避免查询范围过大导致性能问题
+        // 条件单触发到系统检测通常不会超过5分钟
+        const searchWindowMs = 5 * 60 * 1000; // 5分钟
+        const searchStartTime = Math.max(currentTime - searchWindowMs, orderCreateTime - 5000);
         
         trades = await this.exchangeClient.getMyTrades(contract, 500, searchStartTime);
         
-        const now = Date.now();
         const maxTimeWindowMs = 24 * 60 * 60 * 1000; // 24小时
 
         if (attempt === 1) {
-          logger.debug(`查找 ${order.symbol} 平仓交易: 条件单创建时间=${new Date(orderCreateTime).toISOString()}, 搜索起始=${new Date(searchStartTime).toISOString()}, 获取${trades.length}笔交易记录`);
+          logger.debug(`查找 ${order.symbol} 平仓交易: 搜索起始=${new Date(searchStartTime).toISOString()}, 获取${trades.length}笔交易记录`);
         }
 
         // 查找所有符合条件的平仓交易
@@ -829,15 +785,14 @@ export class PriceOrderMonitor {
           
           if (!isCloseTrade) return false;
 
-          // 🔧 价格验证优化：放宽价格匹配条件，因为条件单触发时价格可能略有偏差
+          // 🔧 价格验证优化：收紧价格匹配条件到0.05%，减少误判
           const tradePrice = parseFloat(t.price);
           const triggerPrice = parseFloat(order.trigger_price);
-          const priceTolerancePercent = 0.1; // 0.1% 价格容差
+          const priceTolerancePercent = 0.05; // 0.05% 价格容差
           const priceTolerance = triggerPrice * (priceTolerancePercent / 100);
 
           if (order.type === 'stop_loss') {
             // 止损：多单向下突破，空单向上突破
-            // 放宽条件：价格在触发价附近即可
             if (order.side === 'long') {
               return tradePrice <= triggerPrice + priceTolerance;
             } else {
@@ -845,7 +800,6 @@ export class PriceOrderMonitor {
             }
           } else {
             // 止盈：多单向上突破，空单向下突破
-            // 放宽条件：价格在触发价附近即可
             if (order.side === 'long') {
               return tradePrice >= triggerPrice - priceTolerance;
             } else {
@@ -855,7 +809,7 @@ export class PriceOrderMonitor {
         });
 
         if (closeTrades.length > 0) {
-          // 找到了成交记录
+          // 找到了成交记录，选择最早的一笔
           const closeTrade = closeTrades.reduce((earliest, current) => {
             const currentTime = current.timestamp || current.create_time || 0;
             const earliestTime = earliest.timestamp || earliest.create_time || 0;
@@ -863,7 +817,7 @@ export class PriceOrderMonitor {
           });
 
           const tradeTime = closeTrade.timestamp || closeTrade.create_time || 0;
-          const minutesAgo = Math.floor((now - tradeTime) / 60000);
+          const minutesAgo = Math.floor((currentTime - tradeTime) / 60000);
           logger.debug(`✅ 找到平仓交易: 时间=${new Date(tradeTime).toISOString()}, 价格=${closeTrade.price}, 距今${minutesAgo}分钟`);
 
           return closeTrade;
