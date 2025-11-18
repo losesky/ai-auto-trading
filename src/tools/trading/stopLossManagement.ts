@@ -519,9 +519,10 @@ export const updatePositionStopLossTool = createTool({
 
           const now = new Date().toISOString();
           
-          // 0. 尝试从旧的条件单中获取 position_order_id（如果存在）
+          // 0. 获取 position_order_id（开仓订单ID）
           let positionOrderId: string | null = null;
           try {
+            // 0.1 首先尝试从旧的条件单中获取
             const oldOrderResult = await dbClient.execute({
               sql: `SELECT position_order_id FROM price_orders 
                     WHERE symbol = ? AND status = 'active' AND position_order_id IS NOT NULL
@@ -532,9 +533,35 @@ export const updatePositionStopLossTool = createTool({
             if (oldOrderResult.rows.length > 0 && oldOrderResult.rows[0].position_order_id) {
               positionOrderId = oldOrderResult.rows[0].position_order_id as string;
               logger.info(`📎 从旧条件单获取到关联的开仓订单ID: ${positionOrderId}`);
+            } else {
+              // 0.2 从 positions 表获取 entry_order_id
+              const positionResult = await dbClient.execute({
+                sql: `SELECT entry_order_id FROM positions WHERE symbol = ? LIMIT 1`,
+                args: [symbol],
+              });
+              
+              if (positionResult.rows.length > 0 && positionResult.rows[0].entry_order_id) {
+                positionOrderId = positionResult.rows[0].entry_order_id as string;
+                logger.info(`📎 从 positions 表获取到关联的开仓订单ID: ${positionOrderId}`);
+              } else {
+                // 0.3 如果还是没有，从 trades 表查找该币种的开仓订单
+                const tradeResult = await dbClient.execute({
+                  sql: `SELECT order_id FROM trades 
+                        WHERE symbol = ? AND type = 'open' AND status = 'filled'
+                        ORDER BY id DESC LIMIT 1`,
+                  args: [symbol],
+                });
+                
+                if (tradeResult.rows.length > 0 && tradeResult.rows[0].order_id) {
+                  positionOrderId = tradeResult.rows[0].order_id as string;
+                  logger.info(`📎 从 trades 表获取到开仓订单ID: ${positionOrderId}`);
+                } else {
+                  logger.warn(`⚠️ 未找到 ${symbol} 的开仓订单ID，条件单将不关联持仓`);
+                }
+              }
             }
           } catch (error: any) {
-            logger.warn(`获取旧条件单的 position_order_id 失败: ${error.message}`);
+            logger.warn(`获取开仓订单ID失败: ${error.message}`);
           }
           
           // 1. 标记旧的条件单为已取消（如果存在）

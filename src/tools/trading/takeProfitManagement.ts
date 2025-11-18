@@ -850,9 +850,9 @@ export const partialTakeProfitTool = createTool({
       // 即使止损价格不变，也需要重新设置条件单，因为持仓数量改变了
       logger.info(`${symbol} 分批平仓后更新条件单，剩余持仓: ${remainingQuantityInCoin.toFixed(decimalPlaces)}`);
       
-      // 从数据库获取当前的止损和止盈价格
+      // 从数据库获取当前的止损、止盈价格和开仓订单ID
       const posResult = await dbClient.execute({
-        sql: "SELECT stop_loss, profit_target FROM positions WHERE symbol = ?",
+        sql: "SELECT stop_loss, profit_target, entry_order_id FROM positions WHERE symbol = ?",
         args: [dbSymbol],
       });
       
@@ -862,6 +862,9 @@ export const partialTakeProfitTool = createTool({
       const profitTarget = posResult.rows.length > 0 
         ? Number.parseFloat(posResult.rows[0].profit_target as string || "0")
         : 0;
+      const entryOrderId = posResult.rows.length > 0 && posResult.rows[0].entry_order_id
+        ? posResult.rows[0].entry_order_id as string
+        : null;
       
       // 确定最终的止损价格（如果有新止损价则使用新的，否则使用当前的）
       const finalStopLoss = newStopLossPrice || currentStopLoss;
@@ -912,7 +915,7 @@ export const partialTakeProfitTool = createTool({
                 args: [result.stopLossOrderId, dbSymbol],
               });
               
-              // ⭐ 在 price_orders 表中记录新的止损条件单
+              // ⭐ 在 price_orders 表中记录新的止损条件单（使用开仓订单ID）
               await dbClient.execute({
                 sql: `INSERT INTO price_orders 
                       (order_id, symbol, side, type, trigger_price, quantity, status, position_order_id, created_at)
@@ -925,7 +928,7 @@ export const partialTakeProfitTool = createTool({
                   result.actualStopLoss || 0,
                   remainingQuantityInCoin,
                   'active',
-                  closeOrderResponse.id,
+                  entryOrderId,  // 使用开仓订单ID而不是平仓订单ID
                   getChinaTimeISO(),
                 ],
               });
@@ -937,7 +940,7 @@ export const partialTakeProfitTool = createTool({
                 args: [result.takeProfitOrderId, dbSymbol],
               });
               
-              // ⭐ 在 price_orders 表中记录新的止盈条件单
+              // ⭐ 在 price_orders 表中记录新的止盈条件单（使用开仓订单ID）
               if (result.actualTakeProfit && result.actualTakeProfit > 0) {
                 await dbClient.execute({
                   sql: `INSERT INTO price_orders 
@@ -951,7 +954,7 @@ export const partialTakeProfitTool = createTool({
                     result.actualTakeProfit,
                     remainingQuantityInCoin,
                     'active',
-                    closeOrderResponse.id,
+                    entryOrderId,  // 使用开仓订单ID而不是平仓订单ID
                     getChinaTimeISO(),
                   ],
                 });
@@ -973,7 +976,7 @@ export const partialTakeProfitTool = createTool({
           args: [getChinaTimeISO(), dbSymbol],
         });
         
-        // 2. 插入新的止损条件单（使用新的止损价和剩余数量）
+        // 2. 插入新的止损条件单（使用新的止损价和剩余数量，使用开仓订单ID）
         if (finalStopLoss > 0) {
           const newSlOrderId = `SL_TEST_${Date.now()}`;
           await dbClient.execute({
@@ -988,7 +991,7 @@ export const partialTakeProfitTool = createTool({
               finalStopLoss,
               remainingQuantityInCoin,
               'active',
-              closeOrderResponse.id,
+              entryOrderId,  // 使用开仓订单ID而不是平仓订单ID
               getChinaTimeISO(),
             ],
           });
@@ -1000,7 +1003,7 @@ export const partialTakeProfitTool = createTool({
           });
         }
         
-        // 3. 插入新的止盈条件单（使用剩余数量）
+        // 3. 插入新的止盈条件单（使用剩余数量，使用开仓订单ID）
         if (profitTarget > 0) {
           const newTpOrderId = `TP_TEST_${Date.now()}`;
           await dbClient.execute({
@@ -1015,7 +1018,7 @@ export const partialTakeProfitTool = createTool({
               profitTarget,
               remainingQuantityInCoin,
               'active',
-              closeOrderResponse.id,
+              entryOrderId,  // 使用开仓订单ID而不是平仓订单ID
               getChinaTimeISO(),
             ],
           });
