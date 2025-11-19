@@ -20,14 +20,23 @@
  * 市场状态识别服务
  * 
  * 功能：
- * 1. 趋势强度判断（基于EMA20/EMA50关系，1小时级别）
- * 2. 超买超卖判断（基于RSI7/RSI14，15分钟级别）
- * 3. 波动率状态（基于ATR，判断市场活跃度）
- * 4. 多时间框架一致性检查（15分钟 + 1小时）
- * 5. 价格与关键均线的位置关系（偏离度计算）
+ * 1. 策略自适应时间框架选择（根据交易策略自动匹配最优时间框架）
+ * 2. 趋势强度判断（基于主框架的EMA20/EMA50关系）
+ * 3. 超买超卖判断（基于确认框架的RSI7/RSI14）
+ * 4. 波动率状态（基于过滤框架的ATR，判断市场活跃度）
+ * 5. 多时间框架一致性检查（三层验证）
+ * 6. 价格与关键均线的位置关系（偏离度计算）
+ * 
+ * 策略时间框架映射：
+ * - ultra-short:  3分钟（主）+ 5分钟（确认）+ 15分钟（过滤）
+ * - aggressive:   5分钟（主）+ 15分钟（确认）+ 30分钟（过滤）
+ * - balanced:     5分钟（主）+ 15分钟（确认）+ 1小时（过滤）
+ * - conservative: 15分钟（主）+ 30分钟（确认）+ 1小时（过滤）
+ * - swing-trend:  15分钟（主）+ 1小时（确认）+ 4小时（过滤）
  */
 
 import { createLogger } from "../utils/logger";
+import { getTradingStrategy, type TradingStrategy } from "../agents/tradingAgent";
 import { 
   performMultiTimeframeAnalysis,
   calculateTrendConsistency,
@@ -54,6 +63,51 @@ const OVERBOUGHT_EXTREME_THRESHOLD = Number.parseFloat(process.env.OVERBOUGHT_EX
 const OVERBOUGHT_MILD_THRESHOLD = Number.parseFloat(process.env.OVERBOUGHT_MILD_THRESHOLD || "70");
 
 /**
+ * 策略自适应时间框架配置
+ * 根据不同交易策略选择最优的时间框架组合
+ */
+interface StrategyTimeframes {
+  primary: string;    // 主框架：用于趋势判断
+  confirm: string;    // 确认框架：用于动量判断
+  filter: string;     // 过滤框架：用于大势判断
+}
+
+/**
+ * 获取策略对应的时间框架配置
+ */
+function getTimeframesForStrategy(strategy: TradingStrategy): StrategyTimeframes {
+  const timeframeMap: Record<TradingStrategy, StrategyTimeframes> = {
+    'ultra-short': {
+      primary: 'SHORT_1',      // 3分钟 - 极快响应
+      confirm: 'SHORT',        // 5分钟 - 减少噪音
+      filter: 'SHORT_CONFIRM'  // 15分钟 - 避免逆势
+    },
+    'aggressive': {
+      primary: 'SHORT',        // 5分钟 - 快速响应
+      confirm: 'SHORT_CONFIRM', // 15分钟 - 平衡噪音
+      filter: 'MEDIUM_SHORT'   // 30分钟 - 趋势质量
+    },
+    'balanced': {
+      primary: 'SHORT',        // 5分钟 - 敏感适中
+      confirm: 'SHORT_CONFIRM', // 15分钟 - 标准配置
+      filter: 'MEDIUM'         // 1小时 - 稳定可靠
+    },
+    'conservative': {
+      primary: 'SHORT_CONFIRM', // 15分钟 - 过滤噪音
+      confirm: 'MEDIUM_SHORT',  // 30分钟 - 高质量信号
+      filter: 'MEDIUM'         // 1小时 - 趋势确认
+    },
+    'swing-trend': {
+      primary: 'SHORT_CONFIRM', // 15分钟 - 过滤短期波动
+      confirm: 'MEDIUM',        // 1小时 - 趋势成熟度
+      filter: 'MEDIUM_LONG'    // 4小时 - 大趋势方向
+    }
+  };
+  
+  return timeframeMap[strategy];
+}
+
+/**
  * 分析市场状态
  * 
  * @param symbol 交易品种
@@ -62,49 +116,60 @@ const OVERBOUGHT_MILD_THRESHOLD = Number.parseFloat(process.env.OVERBOUGHT_MILD_
 export async function analyzeMarketState(symbol: string): Promise<MarketStateAnalysis> {
   logger.info(`开始分析 ${symbol} 的市场状态...`);
   
-  // 获取多时间框架数据
-  const mtfData = await performMultiTimeframeAnalysis(symbol, ["SHORT_CONFIRM", "MEDIUM"]);
+  // 获取当前策略
+  const strategy = getTradingStrategy();
+  const timeframes = getTimeframesForStrategy(strategy);
   
-  // 提取关键时间框架数据
-  const tf15m = mtfData.timeframes.shortconfirm; // 15分钟
-  const tf1h = mtfData.timeframes.medium;         // 1小时
+  logger.debug(`${symbol} 使用策略: ${strategy}, 时间框架: ${timeframes.primary}/${timeframes.confirm}/${timeframes.filter}`);
   
-  if (!tf15m || !tf1h) {
+  // 获取多时间框架数据（策略自适应）
+  const mtfData = await performMultiTimeframeAnalysis(
+    symbol, 
+    [timeframes.primary, timeframes.confirm, timeframes.filter]
+  );
+  
+  // 提取时间框架数据（动态适配）
+  const tfPrimaryKey = timeframes.primary.toLowerCase().replace(/_/g, '') as keyof typeof mtfData.timeframes;
+  const tfConfirmKey = timeframes.confirm.toLowerCase().replace(/_/g, '') as keyof typeof mtfData.timeframes;
+  const tfFilterKey = timeframes.filter.toLowerCase().replace(/_/g, '') as keyof typeof mtfData.timeframes;
+  
+  const tfPrimary = mtfData.timeframes[tfPrimaryKey];
+  const tfConfirm = mtfData.timeframes[tfConfirmKey];
+  const tfFilter = mtfData.timeframes[tfFilterKey];
+  
+  if (!tfPrimary || !tfConfirm || !tfFilter) {
     throw new Error(`无法获取 ${symbol} 的时间框架数据`);
   }
   
-  // 1. 判断趋势强度（基于1小时框架）
-  const trendStrength = determineTrendStrength(tf1h);
+  // 1. 判断趋势强度（基于主框架）
+  const trendStrength = determineTrendStrength(tfPrimary);
   
-  // 2. 判断动量状态（基于15分钟框架的RSI7）
-  const momentumState = determineMomentumState(tf15m);
+  // 2. 判断动量状态（基于确认框架）
+  const momentumState = determineMomentumState(tfConfirm);
   
-  // 3. 判断波动率状态（基于1小时框架的ATR）
-  const volatilityState = determineVolatilityState(tf1h);
+  // 3. 判断波动率状态（基于过滤框架）
+  const volatilityState = determineVolatilityState(tfFilter);
   
   // 4. 综合判断市场状态
   const { state, confidence } = determineMarketState(
     trendStrength,
     momentumState,
-    tf15m,
-    tf1h
+    tfConfirm,
+    tfFilter
   );
   
-  // 5. 计算多时间框架一致性
-  const alignmentScore = calculateTrendConsistency(
-    tf15m.ema20,
-    tf15m.ema50,
-    tf1h.ema20,
-    tf1h.ema50,
-    tf15m.macd,
-    tf1h.macd
+  // 5. 计算多时间框架一致性（三层验证）
+  const alignmentScore = calculateTripleTimeframeConsistency(
+    tfPrimary,
+    tfConfirm,
+    tfFilter
   );
   
-  const is15mAnd1hAligned = alignmentScore > 0.6;
+  const isAligned = alignmentScore > 0.6;
   
   // 6. 计算价格相对布林带的位置
-  const priceVsUpperBB = calculatePriceVsBB(tf15m.currentPrice, tf15m.bollingerUpper, tf15m.bollingerMiddle);
-  const priceVsLowerBB = calculatePriceVsBB(tf15m.currentPrice, tf15m.bollingerLower, tf15m.bollingerMiddle);
+  const priceVsUpperBB = calculatePriceVsBB(tfConfirm.currentPrice, tfConfirm.bollingerUpper, tfConfirm.bollingerMiddle);
+  const priceVsLowerBB = calculatePriceVsBB(tfConfirm.currentPrice, tfConfirm.bollingerLower, tfConfirm.bollingerMiddle);
   
   const analysis: MarketStateAnalysis = {
     symbol,
@@ -114,28 +179,60 @@ export async function analyzeMarketState(symbol: string): Promise<MarketStateAna
     volatilityState,
     confidence,
     keyMetrics: {
-      rsi7_15m: tf15m.rsi7,
-      rsi14_15m: tf15m.rsi14,
-      macd_15m: tf15m.macd,
-      ema20_1h: tf1h.ema20,
-      ema50_1h: tf1h.ema50,
-      macd_1h: tf1h.macd,
-      price: tf15m.currentPrice,
-      atr_ratio: tf1h.atrRatio,
-      distanceToEMA20: tf15m.deviationFromEMA20,
+      rsi7_15m: tfConfirm.rsi7,
+      rsi14_15m: tfConfirm.rsi14,
+      macd_15m: tfConfirm.macd,
+      ema20_1h: tfFilter.ema20,
+      ema50_1h: tfFilter.ema50,
+      macd_1h: tfFilter.macd,
+      price: tfConfirm.currentPrice,
+      atr_ratio: tfFilter.atrRatio,
+      distanceToEMA20: tfConfirm.deviationFromEMA20,
       priceVsUpperBB,
       priceVsLowerBB,
     },
     timeframeAlignment: {
-      is15mAnd1hAligned,
+      is15mAnd1hAligned: isAligned,
       alignmentScore,
     },
     timestamp: new Date().toISOString(),
   };
   
-  logger.info(`${symbol} 市场状态: ${state} (置信度: ${(confidence * 100).toFixed(1)}%)`);
+  logger.info(`${symbol} 市场状态: ${state} (置信度: ${(confidence * 100).toFixed(1)}%, 策略: ${strategy})`);
   
   return analysis;
+}
+
+/**
+ * 计算三层时间框架一致性（主框架 + 确认框架 + 过滤框架）
+ */
+function calculateTripleTimeframeConsistency(
+  tfPrimary: TimeframeIndicators,
+  tfConfirm: TimeframeIndicators,
+  tfFilter: TimeframeIndicators
+): number {
+  // 计算主框架和确认框架的一致性
+  const primaryConfirmScore = calculateTrendConsistency(
+    tfPrimary.ema20,
+    tfPrimary.ema50,
+    tfConfirm.ema20,
+    tfConfirm.ema50,
+    tfPrimary.macd,
+    tfConfirm.macd
+  );
+  
+  // 计算确认框架和过滤框架的一致性
+  const confirmFilterScore = calculateTrendConsistency(
+    tfConfirm.ema20,
+    tfConfirm.ema50,
+    tfFilter.ema20,
+    tfFilter.ema50,
+    tfConfirm.macd,
+    tfFilter.macd
+  );
+  
+  // 加权平均：主框架-确认框架占60%，确认框架-过滤框架占40%
+  return primaryConfirmScore * 0.6 + confirmFilterScore * 0.4;
 }
 
 /**

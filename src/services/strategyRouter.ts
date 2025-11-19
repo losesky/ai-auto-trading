@@ -28,6 +28,7 @@ import { performMultiTimeframeAnalysis } from "./multiTimeframeAnalysis";
 import { trendFollowingStrategy } from "../strategies/trendFollowingStrategy";
 import { meanReversionStrategy } from "../strategies/meanReversionStrategy";
 import { breakoutStrategy } from "../strategies/breakoutStrategy";
+import { getExchangeClient } from "../exchanges";
 import type { StrategyResult } from "../types/marketState";
 
 const logger = createLogger({
@@ -155,10 +156,25 @@ export async function routeStrategy(symbol: string): Promise<StrategyResult> {
       };
   }
   
-  // 4. 添加缺失的字段并返回完整结果
+  // 4. 获取24h成交量数据（用于流动性评分）
+  let volume24h: number | undefined;
+  try {
+    const exchangeClient = getExchangeClient();
+    const contract = exchangeClient.normalizeContract(symbol);
+    const ticker = await exchangeClient.getFuturesTicker(contract);
+    volume24h = Number.parseFloat(ticker.volume24h || "0");
+  } catch (error) {
+    logger.warn(`获取 ${symbol} 的24h成交量失败，将使用静态评分`, error);
+  }
+  
+  // 5. 添加缺失的字段并返回完整结果
   const result: StrategyResult = {
     ...baseResult,
     opportunityScore: 0, // 将在机会评分系统中计算
+    keyMetrics: {
+      ...baseResult.keyMetrics,
+      volume24h, // 添加24h成交量
+    },
     timestamp: new Date().toISOString(),
   };
   

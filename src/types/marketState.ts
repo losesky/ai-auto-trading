@@ -148,6 +148,7 @@ export interface StrategyResult {
     ema50: number;
     price: number;
     atrRatio: number;
+    volume24h?: number; // 24小时成交量(USDT) - 可选
   };
   
   timestamp: string;

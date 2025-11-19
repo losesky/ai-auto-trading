@@ -69,6 +69,11 @@ export const TIMEFRAMES: Record<string, TimeframeConfig> = {
     candleCount: 120,
     description: "1小时",
   },
+  MEDIUM_LONG: {
+    interval: "4h",
+    candleCount: 60,
+    description: "4小时",
+  },
 };
 
 /**
@@ -349,6 +354,7 @@ export interface MultiTimeframeAnalysis {
     shortconfirm?: TimeframeIndicators;
     mediumshort?: TimeframeIndicators;
     medium?: TimeframeIndicators;
+    mediumlong?: TimeframeIndicators;
   };
   
   // 关键价位（支撑阻力）
