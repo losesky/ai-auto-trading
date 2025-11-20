@@ -64,20 +64,11 @@ async function recalculatePnl(
     let openFee: number;
     let closeFee: number;
     
-    // 计算名义价值
-    let openNotionalValue: number;
-    let closeNotionalValue: number;
-    
-    if (contractType === 'inverse') {
-      const quantoMultiplier = await getQuantoMultiplier(contract);
-      openNotionalValue = event.quantity * quantoMultiplier * event.entry_price;
-      closeNotionalValue = event.quantity * quantoMultiplier * event.close_price;
-    } else {
-      const quantoMultiplier = await getQuantoMultiplier(contract);
-      const actualQuantity = quantoMultiplier > 1 ? event.quantity * quantoMultiplier : event.quantity;
-      openNotionalValue = actualQuantity * event.entry_price;
-      closeNotionalValue = actualQuantity * event.close_price;
-    }
+    // 🔧 核心修复：正确计算名义价值
+    // 无论U本位还是币本位，公式都是：名义价值 = 张数 * 合约乘数 * 价格
+    const quantoMultiplier = await getQuantoMultiplier(contract);
+    const openNotionalValue = event.quantity * quantoMultiplier * event.entry_price;
+    const closeNotionalValue = event.quantity * quantoMultiplier * event.close_price;
     
     // 尝试从交易记录获取真实手续费（如果有 order_id）
     if (event.order_id) {
@@ -103,24 +94,12 @@ async function recalculatePnl(
     const netPnl = grossPnl - totalFee;
     
     // 3. 重新计算盈亏百分比
-    let pnlPercent: number;
-    
-    if (contractType === 'inverse') {
-      // Gate.io 币本位合约
-      const quantoMultiplier = await getQuantoMultiplier(contract);
-      const positionValue = event.quantity * quantoMultiplier * event.entry_price;
-      const margin = positionValue / event.leverage;
-      pnlPercent = (netPnl / margin) * 100;
-    } else {
-      // USDT 正向合约
-      // 🔧 关键修复：需要考虑 quantoMultiplier
-      // 如果 quantoMultiplier > 1，说明 quantity 是张数，需要转换为实际数量
-      const quantoMultiplier = await getQuantoMultiplier(contract);
-      const actualQuantity = quantoMultiplier > 1 ? event.quantity * quantoMultiplier : event.quantity;
-      const positionValue = actualQuantity * event.entry_price;
-      const margin = positionValue / event.leverage;
-      pnlPercent = (netPnl / margin) * 100;
-    }
+    // 🔧 核心修复：盈亏百分比 = (净盈亏 / 保证金) * 100
+    // 保证金 = 持仓价值 / 杠杆
+    // 持仓价值 = 张数 * 合约乘数 * 开仓价（无论U本位还是币本位都是这个公式）
+    const positionValue = event.quantity * quantoMultiplier * event.entry_price;
+    const margin = positionValue / event.leverage;
+    const pnlPercent = (netPnl / margin) * 100;
     
     return { netPnl, pnlPercent, totalFee };
   } catch (error: any) {
@@ -291,17 +270,10 @@ async function fixPartialTakeProfitHistory() {
     );
     
     // 🔧 使用 FeeService 计算手续费
+    // 🔧 核心修复：正确计算名义价值
     const contractType = exchangeClient.getContractType(contract);
-    let notionalValue: number;
-    
-    if (contractType === 'inverse') {
-      const quantoMultiplier = await getQuantoMultiplier(contract);
-      notionalValue = triggerPrice * closedQuantity * quantoMultiplier;
-    } else {
-      const quantoMultiplier = await getQuantoMultiplier(contract);
-      const actualQuantity = quantoMultiplier > 1 ? closedQuantity * quantoMultiplier : closedQuantity;
-      notionalValue = actualQuantity * triggerPrice;
-    }
+    const quantoMultiplier = await getQuantoMultiplier(contract);
+    const notionalValue = triggerPrice * closedQuantity * quantoMultiplier;
     
     // 尝试获取真实手续费
     let actualFee: number;
@@ -352,6 +324,81 @@ async function fixPartialTakeProfitHistory() {
 }
 
 /**
+ * 修复 trades 表中开仓记录的手续费
+ */
+async function fixOpenTrades() {
+  console.log('\n📊 开始修复 trades 表中的开仓手续费...\n');
+  
+  // 创建 FeeService 实例
+  const exchangeClient = getExchangeClient();
+  const feeService = new FeeService(exchangeClient);
+  
+  // 查询所有开仓记录
+  const result = await dbClient.execute({
+    sql: `SELECT order_id, symbol, side, price, quantity, leverage, fee, timestamp
+          FROM trades
+          WHERE type = 'open' AND timestamp >= datetime('now', '-7 days')
+          ORDER BY timestamp DESC`
+  });
+  
+  if (result.rows.length === 0) {
+    console.log('✅ 没有需要修复的开仓记录');
+    return;
+  }
+  
+  console.log(`找到 ${result.rows.length} 条开仓记录，开始修复...\n`);
+  
+  let fixedCount = 0;
+  let skippedCount = 0;
+  
+  for (const row of result.rows) {
+    const orderId = row.order_id as string;
+    const symbol = row.symbol as string;
+    const price = parseFloat(row.price as string);
+    const quantity = parseFloat(row.quantity as string);
+    const oldFee = parseFloat(row.fee as string);
+    
+    try {
+      const contract = exchangeClient.normalizeContract(symbol);
+      
+      // 🔧 核心修复：正确计算名义价值
+      const quantoMultiplier = await getQuantoMultiplier(contract);
+      const notionalValue = quantity * quantoMultiplier * price;
+      
+      // 尝试获取真实手续费
+      const feeResult = await feeService.getFee(orderId, contract, notionalValue);
+      const newFee = feeResult.fee;
+      
+      if (feeResult.source === 'actual') {
+        console.log(`   ✓ 使用真实开仓手续费: ${newFee.toFixed(4)} USDT`);
+      }
+      
+      // 更新数据库
+      await dbClient.execute({
+        sql: `UPDATE trades SET fee = ? WHERE order_id = ? AND type = 'open'`,
+        args: [newFee, orderId]
+      });
+      
+      const feeDiff = newFee - oldFee;
+      
+      console.log(`✅ ${symbol} 开仓`);
+      console.log(`   旧手续费: ${oldFee.toFixed(4)} USDT`);
+      console.log(`   新手续费: ${newFee.toFixed(4)} USDT`);
+      console.log(`   差异: ${feeDiff.toFixed(4)} USDT\n`);
+      
+      fixedCount++;
+    } catch (error: any) {
+      console.error(`⚠️  修复 ${symbol} 开仓记录失败: ${error.message}`);
+      skippedCount++;
+    }
+  }
+  
+  console.log(`\n📊 开仓记录修复完成:`);
+  console.log(`   ✅ 已修复: ${fixedCount} 条`);
+  console.log(`   ⏭️  已跳过: ${skippedCount} 条`);
+}
+
+/**
  * 主函数
  */
 async function main() {
@@ -365,18 +412,23 @@ async function main() {
     // 2. 修复分批止盈记录
     await fixPartialTakeProfitHistory();
     
+    // 3. 修复开仓记录手续费
+    await fixOpenTrades();
+    
     console.log('✅ 所有修复完成！\n');
     
     // 显示修复后的统计
     console.log('📊 修复后的数据统计:\n');
     
+    // 显示平仓事件
     const statsResult = await dbClient.execute({
       sql: `SELECT 
               symbol,
               side,
               close_reason,
               ROUND(pnl, 2) as pnl,
-              ROUND(pnl_percent, 2) as pnl_percent
+              ROUND(pnl_percent, 2) as pnl_percent,
+              ROUND(fee, 4) as fee
             FROM position_close_events
             WHERE created_at >= datetime('now', '-7 days')
             ORDER BY created_at DESC
@@ -385,6 +437,24 @@ async function main() {
     
     console.log('最近的平仓事件:');
     console.table(statsResult.rows);
+    
+    // 显示开仓记录
+    const openTradesResult = await dbClient.execute({
+      sql: `SELECT 
+              symbol,
+              side,
+              type,
+              ROUND(price, 2) as price,
+              ROUND(quantity, 4) as quantity,
+              ROUND(fee, 4) as fee
+            FROM trades
+            WHERE type = 'open' AND timestamp >= datetime('now', '-7 days')
+            ORDER BY timestamp DESC
+            LIMIT 10`
+    });
+    
+    console.log('\n最近的开仓记录:');
+    console.table(openTradesResult.rows);
     
   } catch (error: any) {
     console.error('❌ 修复失败:', error.message);

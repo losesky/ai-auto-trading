@@ -898,25 +898,18 @@ export const partialTakeProfitTool = createTool({
       }
       
       // 后备方案：估算手续费
+      // 🔧 核心修复：正确计算名义价值
+      // 无论U本位还是币本位，公式都是：名义价值 = 张数 * 合约乘数 * 价格
+      // 注意：quantoMultiplier 已在前面定义，直接使用
       let estimatedFee: number;
-      if (contract.includes('_USD')) {
-        // Gate.io币本位合约
-        const { getQuantoMultiplier } = await import('../../utils/contractUtils.js');
-        const quantoMultiplier = await getQuantoMultiplier(contract);
-        estimatedFee = currentPrice * closeQuantityInCoin * quantoMultiplier * 0.0005;
-      } else {
-        // USDT合约（需要考虑 quantoMultiplier）
-        const { getQuantoMultiplier } = await import('../../utils/contractUtils.js');
-        const quantoMultiplier = await getQuantoMultiplier(contract);
-        const actualQuantity = quantoMultiplier > 1 ? closeQuantityInCoin * quantoMultiplier : closeQuantityInCoin;
-        estimatedFee = actualQuantity * currentPrice * 0.0005;
-      }
+      const notionalValue = closeQuantityInCoin * quantoMultiplier * currentPrice;
+      estimatedFee = notionalValue * 0.0005;
       
       // 使用真实手续费，如果没有则使用估算值
       const finalFee = actualFee > 0 ? actualFee : estimatedFee;
       
       if (actualFee === 0) {
-        logger.debug(`未获取到真实手续费，使用估算值: ${estimatedFee.toFixed(4)} USDT`);
+        logger.debug(`未获取到真实手续费，使用估算值: ${estimatedFee.toFixed(4)} USDT (名义价值=${notionalValue.toFixed(2)} USDT)`);
       }
       
       // 净盈亏 = 毛盈亏 - 手续费

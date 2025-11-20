@@ -583,31 +583,42 @@ IMPORTANT:
         );
         
         if (matchedTrade && matchedTrade.fee) {
-          fee = parseFloat(matchedTrade.fee);
+          fee = Math.abs(parseFloat(matchedTrade.fee));
           logger.debug(`✅ 使用真实手续费: ${fee.toFixed(8)} USDT`);
         } else {
           // 后备方案：估算手续费
-          let positionValue: number;
+          let notionalValue: number;
+          
+          // 🔧 核心修复：正确计算名义价值
           if (contractType === 'inverse') {
+            // 币本位合约：名义价值 = 张数 * 合约乘数（单位：币） * 币价（单位：USDT/币）
             const quantoMultiplier = await getQuantoMultiplier(contract);
-            positionValue = finalQuantity * quantoMultiplier * actualFillPrice;
+            notionalValue = finalQuantity * quantoMultiplier * actualFillPrice;
           } else {
-            positionValue = finalQuantity * actualFillPrice;
+            // U本位合约：名义价值 = 张数 * 合约乘数（单位：币） * 币价（单位：USDT/币）
+            // 例如：BTC_USDT，每张 = 0.001 BTC，160张 * 0.001 * 89826.6 = 14372.256 USDT
+            const quantoMultiplier = await getQuantoMultiplier(contract);
+            notionalValue = finalQuantity * quantoMultiplier * actualFillPrice;
           }
-          fee = positionValue * 0.0005;
-          logger.debug(`⚠️ 未找到成交记录，估算手续费: ${fee.toFixed(8)} USDT`);
+          
+          fee = notionalValue * 0.0005;
+          logger.debug(`⚠️ 未找到成交记录，估算手续费: 名义价值=${notionalValue.toFixed(2)} USDT, 手续费=${fee.toFixed(8)} USDT`);
         }
       } catch (error: any) {
         // 后备方案：估算手续费
         logger.warn(`⚠️ 获取真实手续费失败: ${error.message}，使用估算值`);
-        let positionValue: number;
+        let notionalValue: number;
+        
         if (contractType === 'inverse') {
           const quantoMultiplier = await getQuantoMultiplier(contract);
-          positionValue = finalQuantity * quantoMultiplier * actualFillPrice;
+          notionalValue = finalQuantity * quantoMultiplier * actualFillPrice;
         } else {
-          positionValue = finalQuantity * actualFillPrice;
+          const quantoMultiplier = await getQuantoMultiplier(contract);
+          notionalValue = finalQuantity * quantoMultiplier * actualFillPrice;
         }
-        fee = positionValue * 0.0005;
+        
+        fee = notionalValue * 0.0005;
+        logger.debug(`估算手续费: 名义价值=${notionalValue.toFixed(2)} USDT, 手续费=${fee.toFixed(8)} USDT`);
       }
       
       // 记录开仓交易
@@ -1118,19 +1129,10 @@ export const closePositionTool = createTool({
       logger.info(`预估盈亏: ${grossPnl >= 0 ? '+' : ''}${grossPnl.toFixed(2)} USDT`);
       
       // 🔧 计算手续费（开仓 + 平仓）
-      let openFee: number;
-      let closeFee: number;
-      
-      if (contractType === 'inverse') {
-        // Gate.io反向合约: 手续费 = 张数 * 合约乘数 * 价格 * 费率
-        const quantoMultiplier = await getQuantoMultiplier(contract);
-        openFee = closeSize * quantoMultiplier * entryPrice * 0.0005;
-        closeFee = closeSize * quantoMultiplier * currentPrice * 0.0005;
-      } else {
-        // Binance正向合约: 手续费 = (数量 * 价格) * 费率
-        openFee = entryPrice * closeSize * 0.0005;
-        closeFee = currentPrice * closeSize * 0.0005;
-      }
+      // 🔧 核心修复：正确计算名义价值
+      const quantoMultiplier = await getQuantoMultiplier(contract);
+      const openFee = closeSize * quantoMultiplier * entryPrice * 0.0005;
+      const closeFee = closeSize * quantoMultiplier * currentPrice * 0.0005;
       
       const totalFees = openFee + closeFee;
       
@@ -1200,19 +1202,18 @@ export const closePositionTool = createTool({
             );
             
             // 🔧 扣除手续费（开仓 + 平仓）
+            // 🔧 核心修复：正确计算名义价值
+            // 无论U本位还是币本位，公式都是：名义价值 = 张数 * 合约乘数 * 价格
             let openFee: number;
             let closeFee: number;
             
-            if (contractType === 'inverse') {
-              // Gate.io: 手续费 = 名义价值 * 0.05%
-              const quantoMultiplier = await getQuantoMultiplier(contract);
-              openFee = entryPrice * actualCloseSize * quantoMultiplier * 0.0005;
-              closeFee = actualExitPrice * actualCloseSize * quantoMultiplier * 0.0005;
-            } else {
-              // Binance: 手续费 = 名义价值 * 0.05%
-              openFee = entryPrice * actualCloseSize * 0.0005;
-              closeFee = actualExitPrice * actualCloseSize * 0.0005;
-            }
+            const quantoMultiplier = await getQuantoMultiplier(contract);
+            const openNotionalValue = entryPrice * actualCloseSize * quantoMultiplier;
+            const closeNotionalValue = actualExitPrice * actualCloseSize * quantoMultiplier;
+            
+            openFee = openNotionalValue * 0.0005;
+            closeFee = closeNotionalValue * 0.0005;
+            
             // 总手续费
             const totalFees = openFee + closeFee;
             
@@ -1242,17 +1243,11 @@ export const closePositionTool = createTool({
                 contract
               );
               
-              // 扣除手续费
-              if (contractType === 'inverse') {
-                const quantoMultiplier = await getQuantoMultiplier(contract);
-                const openFee = entryPrice * actualCloseSize * quantoMultiplier * 0.0005;
-                const closeFee = actualExitPrice * actualCloseSize * quantoMultiplier * 0.0005;
-                pnl = grossPnl - openFee - closeFee;
-              } else {
-                const openFee = entryPrice * actualCloseSize * 0.0005;
-                const closeFee = actualExitPrice * actualCloseSize * 0.0005;
-                pnl = grossPnl - openFee - closeFee;
-              }
+              // 🔧 核心修复：正确计算手续费
+              const quantoMultiplier = await getQuantoMultiplier(contract);
+              const openFee = entryPrice * actualCloseSize * quantoMultiplier * 0.0005;
+              const closeFee = actualExitPrice * actualCloseSize * quantoMultiplier * 0.0005;
+              pnl = grossPnl - openFee - closeFee;
             } else {
               logger.warn(`获取平仓订单详情失败，${retryCount}/${maxRetries} 次重试...`);
               await new Promise(resolve => setTimeout(resolve, 300));
@@ -1266,19 +1261,10 @@ export const closePositionTool = createTool({
       const totalBalance = Number.parseFloat(account.total || "0");
       
       // 🔧 计算总手续费（开仓 + 平仓）用于数据库记录
-      let dbOpenFee: number;
-      let dbCloseFee: number;
-      
-      if (contractType === 'inverse') {
-        // Gate.io
-        const dbQuantoMultiplier = await getQuantoMultiplier(contract);
-        dbOpenFee = entryPrice * actualCloseSize * dbQuantoMultiplier * 0.0005;
-        dbCloseFee = actualExitPrice * actualCloseSize * dbQuantoMultiplier * 0.0005;
-      } else {
-        // Binance
-        dbOpenFee = entryPrice * actualCloseSize * 0.0005;
-        dbCloseFee = actualExitPrice * actualCloseSize * 0.0005;
-      }
+      // 🔧 核心修复：正确计算名义价值
+      const dbQuantoMultiplier = await getQuantoMultiplier(contract);
+      const dbOpenFee = entryPrice * actualCloseSize * dbQuantoMultiplier * 0.0005;
+      const dbCloseFee = actualExitPrice * actualCloseSize * dbQuantoMultiplier * 0.0005;
       
       const totalFee = dbOpenFee + dbCloseFee;
       
@@ -1292,13 +1278,7 @@ export const closePositionTool = createTool({
       ) - totalFee;
       
       // 获取名义价值用于检测异常
-      let notionalValue: number;
-      if (contractType === 'inverse') {
-        const dbQuantoMultiplier = await getQuantoMultiplier(contract);
-        notionalValue = actualExitPrice * actualCloseSize * dbQuantoMultiplier;
-      } else {
-        notionalValue = actualExitPrice * actualCloseSize;
-      }
+      const notionalValue = actualExitPrice * actualCloseSize * dbQuantoMultiplier;
       
       // 检测盈亏是否被错误地设置为名义价值
       if (Math.abs(pnl - notionalValue) < Math.abs(pnl - expectedPnl)) {

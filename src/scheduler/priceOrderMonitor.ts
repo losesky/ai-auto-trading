@@ -562,28 +562,14 @@ export class PriceOrderMonitor {
     
     // 🔧 核心优化：使用 FeeService 获取真实手续费
     const contractType = this.exchangeClient.getContractType(contract);
+    const quantoMultiplier = await getQuantoMultiplier(contract);
     
-    // 计算名义价值（用于手续费估算）
-    let notionalValue: number;
-    if (contractType === 'inverse') {
-      const quantoMultiplier = await getQuantoMultiplier(contract);
-      notionalValue = quantity * quantoMultiplier * entryPrice;
-    } else {
-      const quantoMultiplier = await getQuantoMultiplier(contract);
-      const actualQuantity = quantoMultiplier > 1 ? quantity * quantoMultiplier : quantity;
-      notionalValue = actualQuantity * entryPrice;
-    }
-    
-    // 获取平仓手续费（优先使用成交记录中的真实手续费）
-    let closeNotionalValue: number;
-    if (contractType === 'inverse') {
-      const quantoMultiplier = await getQuantoMultiplier(contract);
-      closeNotionalValue = quantity * quantoMultiplier * exitPrice;
-    } else {
-      const quantoMultiplier = await getQuantoMultiplier(contract);
-      const actualQuantity = quantoMultiplier > 1 ? quantity * quantoMultiplier : quantity;
-      closeNotionalValue = actualQuantity * exitPrice;
-    }
+    // 🔧 核心修复：正确计算名义价值
+    // 无论U本位还是币本位，计算公式都是：名义价值 = 张数 * 合约乘数 * 价格
+    // 例如：BTC_USDT (U本位)，每张 = 0.001 BTC，160张 * 0.001 * 89826.6 = 14372.256 USDT
+    // 例如：BTC_USD (币本位)，每张 = 100 USD，160张 * 100 / 89826.6 = 0.178 BTC
+    const openNotionalValue = quantity * quantoMultiplier * entryPrice;
+    const closeNotionalValue = quantity * quantoMultiplier * exitPrice;
     
     const closeFeeResult = await this.feeService.getFee(trade.id, contract, closeNotionalValue);
     const closeFee = closeFeeResult.fee;
@@ -602,12 +588,12 @@ export class PriceOrderMonitor {
         logger.debug(`使用数据库中的真实开仓手续费: ${openFee.toFixed(4)} USDT`);
       } else {
         // 后备方案：估算
-        const openFeeResult = await this.feeService.estimateFee(notionalValue);
+        const openFeeResult = await this.feeService.estimateFee(openNotionalValue);
         openFee = openFeeResult.fee;
       }
     } catch (error: any) {
       logger.warn(`获取开仓手续费失败，使用估算: ${error.message}`);
-      const openFeeResult = await this.feeService.estimateFee(notionalValue);
+      const openFeeResult = await this.feeService.estimateFee(openNotionalValue);
       openFee = openFeeResult.fee;
     }
     
@@ -617,22 +603,10 @@ export class PriceOrderMonitor {
     // 🔧 核心修复：盈亏百分比计算
     // 盈亏百分比 = (净盈亏 / 保证金) * 100
     // 保证金 = 持仓价值 / 杠杆
-    let pnlPercent: number;
-    
-    if (contractType === 'inverse') {
-      // Gate.io 币本位合约：持仓价值 = 张数 * 合约乘数 * 开仓价
-      const quantoMultiplier = await getQuantoMultiplier(contract);
-      const positionValue = quantity * quantoMultiplier * entryPrice;
-      const margin = positionValue / leverage;
-      pnlPercent = (netPnl / margin) * 100;
-    } else {
-      // USDT 本位合约：需要考虑 quantoMultiplier
-      const quantoMultiplier = await getQuantoMultiplier(contract);
-      const actualQuantity = quantoMultiplier > 1 ? quantity * quantoMultiplier : quantity;
-      const positionValue = actualQuantity * entryPrice;
-      const margin = positionValue / leverage;
-      pnlPercent = (netPnl / margin) * 100;
-    }
+    // 持仓价值 = 张数 * 合约乘数 * 开仓价（无论U本位还是币本位都是这个公式）
+    const positionValue = quantity * quantoMultiplier * entryPrice;
+    const margin = positionValue / leverage;
+    const pnlPercent = (netPnl / margin) * 100;
     
     logger.info(`💰 盈亏: 毛利=${grossPnl.toFixed(2)} USDT, 手续费=${totalFee.toFixed(2)} USDT, 净利=${netPnl.toFixed(2)} USDT (${pnlPercent.toFixed(2)}%)`);
 
@@ -1177,18 +1151,12 @@ export class PriceOrderMonitor {
         : 'take_profit_triggered';
 
       // 计算总手续费（开仓 + 平仓）
+      // 🔧 核心修复：正确计算开仓手续费
       const contractType = this.exchangeClient.getContractType();
       const closeFee = parseFloat(trade.fee || '0');
-      let estimatedOpenFee: number;
       
-      if (contractType === 'inverse') {
-        // 反向合约：手续费 = 张数 * 合约乘数 * 价格 * 费率
-        const quantoMultiplier = await getQuantoMultiplier(contract);
-        estimatedOpenFee = quantity * quantoMultiplier * entryPrice * 0.0005;
-      } else {
-        // 正向合约：手续费 = 数量 * 价格 * 费率
-        estimatedOpenFee = quantity * entryPrice * 0.0005;
-      }
+      const quantoMultiplier = await getQuantoMultiplier(contract);
+      const estimatedOpenFee = quantity * quantoMultiplier * entryPrice * 0.0005;
       
       const totalFee = closeFee + estimatedOpenFee;
 
