@@ -198,8 +198,8 @@ export class PartialTakeProfitExecutor {
 
         const currentR = calculateRMultiple(entryPrice, currentPrice, stopLossPrice, side);
 
-        // 检查Stage1条件（≥1R）
-        if (currentR >= 1.0) {
+        // 检查Stage1条件（≥0.6R）
+        if (currentR >= 0.6) {
           const lockKey = `partial_tp_${symbol}_${side}_stage1`;
           
           // 检查是否最近已执行
@@ -258,8 +258,8 @@ export class PartialTakeProfitExecutor {
           }
         }
 
-        // 检查Stage2条件（≥2R）
-        if (currentR >= 2.0) {
+        // 检查Stage2条件（≥1.2R）
+        if (currentR >= 1.2) {
           const lockKey = `partial_tp_${symbol}_${side}_stage2`;
           
           // 检查是否最近已执行

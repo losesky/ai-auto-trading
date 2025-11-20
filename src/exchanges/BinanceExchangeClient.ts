@@ -113,7 +113,7 @@ export class BinanceExchangeClient implements IExchangeClient {
     ];
     
     this.baseUrl = config.isTestnet 
-      ? testnetUrls[0]  // 默认使用第一个
+      ? testnetUrls[1]  // 默认使用第一个
       : 'https://fapi.binance.com';
 
     if (config.isTestnet) {

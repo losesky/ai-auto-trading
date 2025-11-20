@@ -354,9 +354,9 @@ export const partialTakeProfitTool = createTool({
   description: `执行分批止盈（基于风险倍数 R-Multiple）
 
 专业交易员的分批止盈策略：
-• 1R（盈利=1倍风险）：平仓 1/3，止损移至成本价（保本交易）
-• 2R（盈利=2倍风险）：平仓 1/3，止损移至 1R（锁定1倍风险利润）
-• 3R+（盈利≥3倍风险）：保留 1/3，使用移动止损让利润奔跑
+• 0.6R（盈利=0.6倍风险）：平仓 1/3，止损移至成本价（保本交易）
+• 1.2R（盈利=1.2倍风险）：平仓 1/3，止损移至 0.6R（锁定0.6倍风险利润）
+• 2R+（盈利≥2倍风险）：保留 1/3，使用移动止损让利润奔跑
 
 核心理念：
 1. 基于风险倍数，而非固定百分比
@@ -375,7 +375,7 @@ export const partialTakeProfitTool = createTool({
 • 如果启用科学止损，会同步更新交易所订单`,
   parameters: z.object({
     symbol: z.string().describe("币种代码（如：BTC, ETH）"),
-    stage: z.enum(["1", "2", "3"]).describe("分批阶段：1=1R平仓1/3, 2=2R平仓1/3, 3=3R+移动止损"),
+    stage: z.enum(["1", "2", "3"]).describe("分批阶段：1=0.6R平仓1/3, 2=1.2R平仓1/3, 3=2R+移动止损"),
   }),
   execute: async ({ symbol, stage }) => {
     const exchangeClient = getExchangeClient();
@@ -614,8 +614,8 @@ export const partialTakeProfitTool = createTool({
       let newStopLossPrice: number | undefined;
       
       if (stageNum === 1) {
-        // 阶段1: 1R，平仓 1/3，止损移至成本价
-        baseRequiredR = 1;
+        // 阶段1: 0.6R，平仓 1/3，止损移至成本价
+        baseRequiredR = 0.6;
         requiredR = adjustRMultipleForVolatility(baseRequiredR, volatility);
         closePercent = 33.33;
         newStopLossPrice = entryPrice;
@@ -637,8 +637,8 @@ export const partialTakeProfitTool = createTool({
           };
         }
       } else if (stageNum === 2) {
-        // 阶段2: 2R，平仓 1/3，止损移至 1R
-        baseRequiredR = 2;
+        // 阶段2: 1.2R，平仓 1/3，止损移至 0.6R
+        baseRequiredR = 1.2;
         requiredR = adjustRMultipleForVolatility(baseRequiredR, volatility);
         closePercent = 33.33;
         
@@ -651,8 +651,8 @@ export const partialTakeProfitTool = createTool({
           };
         }
         
-        // 🔧 止损移至 1R 位置（使用原始止损价计算，不受波动率影响）
-        newStopLossPrice = calculateTargetPrice(entryPrice, originalStopLoss, 1, side);
+        // 🔧 止损移至 0.6R 位置（使用原始止损价计算，不受波动率影响）
+        newStopLossPrice = calculateTargetPrice(entryPrice, originalStopLoss, 0.6, side);
         
         logger.info(`${symbol} 阶段2 R倍数要求: 基础=${baseRequiredR}R, 调整后=${requiredR.toFixed(2)}R (${volatility.level}波动)`);
         
@@ -671,8 +671,8 @@ export const partialTakeProfitTool = createTool({
           };
         }
       } else if (stageNum === 3) {
-        // 阶段3: 3R+，不平仓，启用移动止损
-        baseRequiredR = 3;
+        // 阶段3: 2R+，不平仓，启用移动止损
+        baseRequiredR = 2;
         requiredR = adjustRMultipleForVolatility(baseRequiredR, volatility);
         closePercent = 0;
         
@@ -1421,9 +1421,9 @@ export const checkPartialTakeProfitOpportunityTool = createTool({
         const currentR = calculateRMultiple(entryPrice, currentPrice, originalStopLoss, side);
         
         // 计算动态调整后的R倍数要求
-        const adjustedR1 = adjustRMultipleForVolatility(1, volatility);
-        const adjustedR2 = adjustRMultipleForVolatility(2, volatility);
-        const adjustedR3 = adjustRMultipleForVolatility(3, volatility);
+        const adjustedR1 = adjustRMultipleForVolatility(0.6, volatility);
+        const adjustedR2 = adjustRMultipleForVolatility(1.2, volatility);
+        const adjustedR3 = adjustRMultipleForVolatility(2, volatility);
         
         // 获取历史（使用实际的数据库符号）
         const history = await getPartialTakeProfitHistory(actualDbSymbol);

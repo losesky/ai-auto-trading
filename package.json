@@ -74,6 +74,7 @@
   "dependencies": {
     "@ai-sdk/openai": "^2.0.53",
     "@anthropic-ai/sdk": "^0.67.0",
+    "@libsql/win32-x64-msvc": "^0.5.22",
     "@voltagent/cli": "^0.1.10",
     "@voltagent/core": "^1.0.0",
     "@voltagent/libsql": "^1.0.0",
@@ -84,6 +85,7 @@
     "chart.js": "^4.4.1",
     "dotenv": "^16.4.7",
     "gate-api": "^6.61.0",
+    "libsql": "^0.5.22",
     "node-cron": "^3.0.3",
     "nodemailer": "^7.0.10",
     "pino": "^10.1.0",
