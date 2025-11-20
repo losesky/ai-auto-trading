@@ -40,6 +40,25 @@ const logger = createLogger({
   level: "info",
 });
 
+/**
+ * 安全解析 JSON，将大整数转换为字符串以避免精度丢失
+ * JavaScript 的 Number.MAX_SAFE_INTEGER = 9007199254740991
+ * Binance 的订单ID通常超过这个值
+ */
+function safeJsonParse(text: string): any {
+  return JSON.parse(text, (key, value) => {
+    // 如果值是数字且超过安全整数范围，保持为字符串
+    if (typeof value === 'number' && !Number.isSafeInteger(value)) {
+      // 检查原始文本中的值是否为整数（无小数点）
+      const numberMatch = text.match(new RegExp(`"${key}"\\s*:\\s*(\\d+)(?:[^\\d]|$)`));
+      if (numberMatch) {
+        return numberMatch[1]; // 返回字符串形式的整数
+      }
+    }
+    return value;
+  });
+}
+
 export class BinanceExchangeClient implements IExchangeClient {
   private readonly apiKey: string;
   private readonly apiSecret: string;
@@ -410,8 +429,9 @@ export class BinanceExchangeClient implements IExchangeClient {
             
             throw new Error(errorMsg);
           }
-          
-          const error = await response.json();
+
+          const text = await response.text();
+          const error = safeJsonParse(text);
           
           // 🔥 特殊处理: IP被封禁 (-1003)
           if (error.code === -1003) {
@@ -481,9 +501,10 @@ export class BinanceExchangeClient implements IExchangeClient {
 
         // 请求成功，记录成功状态并解析JSON
         this.recordSuccess();
-        
+
         try {
-          return await response.json();
+          const text = await response.text();
+          return safeJsonParse(text);
         } catch (jsonError: any) {
           // JSON解析失败，可能是返回了HTML
           const text = await response.text().catch(() => 'Unable to read response');
@@ -634,8 +655,9 @@ export class BinanceExchangeClient implements IExchangeClient {
               await new Promise(resolve => setTimeout(resolve, Math.min(1000 * attempt, 3000)));
               continue;
             }
-            
-            const error = await response.json();
+
+            const text = await response.text();
+            const error = safeJsonParse(text);
             
             // 🔥 特殊处理: IP被封禁 (-1003)
             if (error.code === -1003) {
@@ -691,7 +713,8 @@ export class BinanceExchangeClient implements IExchangeClient {
 
           // 安全地解析JSON
           try {
-            return await response.json();
+            const text = await response.text();
+            return safeJsonParse(text);
           } catch (jsonError: any) {
             const text = await response.text().catch(() => 'Unable to read response');
             logger.error(`JSON解析失败: ${jsonError.message}`);
