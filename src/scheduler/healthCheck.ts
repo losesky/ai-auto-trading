@@ -406,6 +406,58 @@ export async function performHealthCheck(forceCheck = false): Promise<HealthChec
       // 不影响整体健康检查结果，只记录日志
     }
     
+    // ========== 检查项7: 反转监控自动执行（兜底保护）==========
+    logger.debug('检查7: 反转监控自动执行...');
+    
+    try {
+      // 📌 核心升级：类似分批止盈，健康检查也执行反转监控
+      // 确保即使反转监控线程失效，健康检查也能及时平仓（最后一道防线）
+      
+      const { ReversalMonitorExecutor } = await import('../services/reversalMonitorExecutor');
+      const reversalResult = await ReversalMonitorExecutor.executeCheck('health-check');
+      
+      if (reversalResult.success) {
+        if (reversalResult.closed > 0) {
+          logger.warn(`⚠️ 健康检查触发紧急平仓 ${reversalResult.closed} 个持仓（反转监控线程可能失效）`);
+          
+          // 记录详细信息
+          const closedDetails = reversalResult.details.filter(d => d.action === 'closed');
+          for (const detail of closedDetails) {
+            logger.warn(`  🚨 ${detail.symbol} ${detail.side} - score=${detail.reversalScore} - ${detail.reason}`);
+          }
+          
+          // 发送邮件告警（说明反转监控线程可能失效）
+          if (closedDetails.length > 0) {
+            const alertMessage = closedDetails.map(d => 
+              `${d.symbol} ${d.side}: reversalScore=${d.reversalScore}`
+            ).join(', ');
+            
+            emailAlertService.sendAlert({
+              level: AlertLevel.WARNING,
+              title: '健康检查触发反转平仓',
+              message: `健康检查检测到 ${reversalResult.closed} 个持仓需要紧急平仓，反转监控线程可能未及时处理`,
+              details: {
+                closedPositions: closedDetails,
+                alertMessage,
+                timestamp: new Date().toISOString()
+              }
+            });
+          }
+        }
+        
+        if (reversalResult.warned > 0) {
+          logger.debug(`发出 ${reversalResult.warned} 个反转预警`);
+        }
+        
+        if (reversalResult.closed === 0 && reversalResult.warned === 0) {
+          logger.debug('✅ 无反转风险');
+        }
+      }
+    } catch (reversalError: any) {
+      logger.debug('反转监控自动执行失败:', reversalError.message);
+      // 不影响整体健康检查结果
+    }
+    
   } catch (error: any) {
     issues.push(`健康检查执行失败: ${error.message}`);
     logger.error('❌ 健康检查执行失败:', error);
