@@ -466,6 +466,41 @@ export class BinanceExchangeClient implements IExchangeClient {
           
           // 🔥 特殊处理: IP被封禁 (-1003)
           if (error.code === -1003) {
+            // 🔧 立即打印封禁前的API请求统计，便于诊断
+            logger.error('═'.repeat(80));
+            logger.error('🚨 检测到IP封禁！打印封禁前API请求统计：');
+            logger.error('═'.repeat(80));
+            
+            const stats = Array.from(this.requestStats.entries())
+              .sort((a, b) => b[1] - a[1]);
+            const total = Array.from(this.requestStats.values()).reduce((sum, count) => sum + count, 0);
+            const qpm = Math.round(total / 5); // 每分钟请求数
+            
+            logger.error(`📊 最近5分钟总请求数: ${total}, 平均 ${qpm}/分钟`);
+            logger.error(`📋 高频请求TOP10（降序）：`);
+            stats.slice(0, 10).forEach(([endpoint, count], index) => {
+              const perMinute = Math.round(count / 5);
+              logger.error(`   ${index + 1}. ${endpoint}: ${count}次 (${perMinute}/分钟)`);
+            });
+            
+            // 分析可能的原因
+            logger.error('');
+            logger.error('🔍 可能原因分析：');
+            if (qpm > 60) {
+              logger.error(`   ⚠️  总请求频率过高 (${qpm}/分钟)，超过60次/分钟`);
+              logger.error('   💡 建议: 减少监控币种数量或延长交易周期');
+            }
+            
+            const highFreqEndpoints = stats.filter(([_, count]) => count / 5 > 20);
+            if (highFreqEndpoints.length > 0) {
+              logger.error(`   ⚠️  发现 ${highFreqEndpoints.length} 个高频端点 (>20次/分钟):`);
+              highFreqEndpoints.forEach(([endpoint, count]) => {
+                logger.error(`      - ${endpoint}: ${Math.round(count/5)} 次/分钟`);
+              });
+            }
+            
+            logger.error('═'.repeat(80));
+            
             // 解析封禁时间
             const banMessage = error.msg || '';
             const banMatch = banMessage.match(/banned until (\d+)/);
@@ -475,7 +510,12 @@ export class BinanceExchangeClient implements IExchangeClient {
               const banDuration = Math.ceil((banUntilTimestamp - Date.now()) / 1000);
               
               logger.error(`🚨 IP被Binance封禁，封禁时长: ${banDuration}秒`);
-              logger.error(`💡 建议: 使用WebSocket或大幅减少API调用频率`);
+              logger.error(`💡 紧急建议（立即实施）：`);
+              logger.error(`   1. 检查 .env 配置，减少监控币种数量 (TRADING_SYMBOLS)`);
+              logger.error(`   2. 延长交易周期 (TRADING_INTERVAL_MINUTES=20)`);
+              logger.error(`   3. 延长条件单监控间隔 (PRICE_ORDER_CHECK_INTERVAL=90)`);
+              logger.error(`   4. 延长健康检查间隔 (HEALTH_CHECK_INTERVAL_MINUTES=10)`);
+              logger.error(`📚 详细优化方案请查看: docs/币安IP封禁-诊断与解决方案.md`);
               logger.error(`⏰ 系统将在封禁期间使用缓存数据`);
               
               // 立即触发熔断器，使用封禁时长
@@ -948,6 +988,16 @@ export class BinanceExchangeClient implements IExchangeClient {
       const cached = this.candleCache.get(cacheKey);
       if (!skipCache && cached && this.isCacheValid(cached.timestamp, cacheTTL)) {
         return cached.data;
+      }
+
+      // 🔧 如果熔断器打开，使用过期缓存（K线数据可容忍轻微延迟）
+      if (this.isCircuitBreakerOpen()) {
+        if (cached) {
+          const cacheAge = Math.floor((Date.now() - cached.timestamp) / 1000);
+          logger.warn(`熔断器已打开，使用 ${symbol} ${interval} K线缓存数据 (${cacheAge}秒前)`);
+          return cached.data;
+        }
+        throw new Error('熔断器已打开且无可用K线缓存');
       }
 
       // 🔧 智能批量请求延迟：只在检测到批量请求时添加延迟
