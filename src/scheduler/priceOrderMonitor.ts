@@ -132,10 +132,10 @@ export class PriceOrderMonitor {
         return;
       }
 
-      // 🔧 过滤掉刚创建的条件单（60秒保护窗口）
-      // 原因：刚创建的条件单可能因API延迟查不到，避免误判为"消失"
+      // 🔧 过滤掉刚创建的条件单（30秒保护窗口）
+      // 原因：币安测试网API响应慢，刚创建的条件单可能1-2分钟内查不到，避免误判为"消失"
       const now = Date.now();
-      const GRACE_PERIOD_MS = 60 * 1000; // 60秒保护窗口
+      const GRACE_PERIOD_MS = 30 * 1000; // 30秒保护窗口（币安测试网需要更长时间）
       const ordersToCheck = activeOrders.filter(order => {
         const createdAt = new Date(order.created_at).getTime();
         const age = now - createdAt;
@@ -157,6 +157,7 @@ export class PriceOrderMonitor {
       let exchangeOrders: any[] = [];
       try {
         exchangeOrders = await this.exchangeClient.getPriceOrders();
+        logger.debug(`📋 交易所返回 ${exchangeOrders.length} 个条件单`);
       } catch (error: any) {
         logger.warn('⚠️ 无法从交易所获取条件单列表，跳过本次检测（可能是API错误）:', error.message);
         return;
@@ -164,15 +165,18 @@ export class PriceOrderMonitor {
       
       // 构建交易所订单映射表，统一使用 id 字段作为 key
       // Gate.io API返回的对象格式: { id: number, ... }
-      // Binance API返回的对象格式可能不同，需要兼容
+      // Binance API返回的对象格式: { algoId: number, ... }
       const exchangeOrderMap = new Map<string, any>(
         exchangeOrders
           .map(o => {
-            const orderId = (o.id || o.orderId || o.order_id)?.toString();
+            // 兼容多种ID字段名：Gate.io用id，币安用algoId
+            const orderId = (o.algoId || o.id || o.orderId || o.order_id)?.toString();
             return [orderId, o] as [string, any];
           })
           .filter(([id]) => id) // 过滤掉没有ID的订单
       );
+      
+      logger.debug(`🔑 交易所订单ID映射: [${Array.from(exchangeOrderMap.keys()).join(', ')}]`);
 
       // 3. 同时获取交易所实际持仓状态（关键补充）
       let exchangePositions: any[] = [];
@@ -201,6 +205,8 @@ export class PriceOrderMonitor {
           let orderInExchange = exchangeOrderMap.has(dbOrder.order_id);
           const positionInExchange = exchangePositionMap.has(contract);
           const initialOrderState = initialOrderStates.get(dbOrder.order_id) || false;
+          
+          logger.debug(`🔍 检查条件单: ${dbOrder.symbol} ${dbOrder.type} ID=${dbOrder.order_id}, 在交易所=${orderInExchange}, 持仓存在=${positionInExchange}`);
           
           // 🔧 智能修复：如果数据库中的条件单ID在交易所不存在，
           // 但交易所有该合约的条件单，尝试同步更新数据库ID
@@ -231,7 +237,8 @@ export class PriceOrderMonitor {
             });
             
             if (matchingOrder) {
-              const newOrderId = (matchingOrder.id || matchingOrder.orderId || matchingOrder.order_id)?.toString();
+              // 兼容多种ID字段名：Gate.io用id，币安用algoId
+              const newOrderId = (matchingOrder.algoId || matchingOrder.id || matchingOrder.orderId || matchingOrder.order_id)?.toString();
               if (newOrderId && newOrderId !== dbOrder.order_id) {
                 logger.info(`🔄 检测到条件单ID不匹配，自动同步: ${dbOrder.order_id} → ${newOrderId}`);
                 
