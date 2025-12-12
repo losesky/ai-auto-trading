@@ -82,6 +82,8 @@ export class RateLimitManager {
   private requestStats = new Map<string, number>();
   private lastStatsLogTime = 0;
   private readonly STATS_LOG_INTERVAL = 300000; // 5分钟
+  // 按分钟记录请求数，用于计算峰值
+  private requestsPerMinute: Array<{ minute: number; count: number }> = [];
   
   // ============ 全局实例管理 ============
   private static instances = new Map<string, RateLimitManager>();
@@ -270,8 +272,24 @@ export class RateLimitManager {
     const count = this.requestStats.get(endpoint) || 0;
     this.requestStats.set(endpoint, count + 1);
     
-    // 定期打印统计
+    // 记录每分钟的请求数（用于计算峰值）
     const now = Date.now();
+    const currentMinute = Math.floor(now / 60000); // 按分钟取整
+    
+    // 清理6分钟前的数据
+    this.requestsPerMinute = this.requestsPerMinute.filter(
+      item => currentMinute - item.minute < 6
+    );
+    
+    // 更新当前分钟的计数
+    const existingMinute = this.requestsPerMinute.find(item => item.minute === currentMinute);
+    if (existingMinute) {
+      existingMinute.count++;
+    } else {
+      this.requestsPerMinute.push({ minute: currentMinute, count: 1 });
+    }
+    
+    // 定期打印统计
     if (now - this.lastStatsLogTime > this.STATS_LOG_INTERVAL) {
       this.logRequestStats(false);
       this.lastStatsLogTime = now;
@@ -292,6 +310,16 @@ export class RateLimitManager {
     const minutes = isEmergency ? 5 : 5; // 统计窗口
     const qpm = Math.round(total / minutes);
     
+    // 计算峰值（最近5分钟内单分钟最高请求数）
+    const now = Date.now();
+    const currentMinute = Math.floor(now / 60000);
+    const recentMinutes = this.requestsPerMinute.filter(
+      item => currentMinute - item.minute < 5
+    );
+    const peakQpm = recentMinutes.length > 0 
+      ? Math.max(...recentMinutes.map(item => item.count))
+      : qpm;
+    
     const logLevel = isEmergency ? 'error' : 'info';
     const logFn = (msg: string) => {
       if (logLevel === 'error') logger.error(msg);
@@ -305,10 +333,12 @@ export class RateLimitManager {
     }
     
     logFn(`[${this.exchangeName}] 📊 最近${minutes}分钟API统计:`);
-    logFn(`   总请求: ${total}, 平均${qpm}/分钟 (限制: ${this.maxRequestsPerMinute}/分钟)`);
+    logFn(`   总请求: ${total}, 平均${qpm}/分钟, 峰值${peakQpm}/分钟 (限制: ${this.maxRequestsPerMinute}/分钟)`);
     
-    if (qpm > this.maxRequestsPerMinute * 0.8) {
-      logFn(`   ⚠️  请求频率接近限制！`);
+    if (peakQpm > this.maxRequestsPerMinute * 0.8) {
+      logFn(`   ⚠️  峰值请求频率接近限制！`);
+    } else if (qpm > this.maxRequestsPerMinute * 0.8) {
+      logFn(`   ⚠️  平均请求频率接近限制！`);
     }
     
     logFn(`   TOP10高频端点:`);
